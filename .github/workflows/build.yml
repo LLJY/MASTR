@@ -13,7 +13,7 @@ jobs:
 
     strategy:
       matrix:
-        board: [pico2, pico_w]
+        board: [pico2_w, pico_w]
 
     steps:
       - name: Checkout code
