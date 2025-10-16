@@ -1,0 +1,107 @@
+name: Telegram Notifications
+
+on:
+  issue_comment:
+    types: [created]
+  issues:
+    types: [opened, edited, pinned, closed, reopened, assigned, labeled]
+  pull_request:
+    types: [opened, closed, edited, ready_for_review, review_requested, reopened]
+  pull_request_review_comment:
+    types: [created]
+  push:
+
+jobs:
+  send_telegram_message:
+    name: Send Telegram Message
+    runs-on: ubuntu-latest
+    steps:
+      # Step for PUSH events
+      - name: Notify on Push
+        if: github.event_name == 'push'
+        uses: cbrgm/telegram-github-action@v1 # Using the correct action
+        with:
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }} # Correct input name: 'token'
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}      # Correct input name: 'to'
+          parse-mode: 'markdown'                    # Correct input name: 'parse-mode'
+          message: |
+            🚀 *Push to `${{ github.ref_name }}`*
+            *Repository:* `${{ github.repository }}`
+            *By:* `${{ github.actor }}`
+            *Commit Message:* `${{ github.event.head_commit.message }}`
+            [View Commit](${{ github.event.head_commit.url }})
+
+      # Step for ISSUE events
+      - name: Notify on Issue Action
+        if: github.event_name == 'issues'
+        uses: cbrgm/telegram-github-action@v1
+        with:
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          parse-mode: 'markdown'
+          message: |
+            ℹ️ *Issue `${{ github.event.action }}`*
+            *Repository:* `${{ github.repository }}`
+            *By:* `${{ github.actor }}`
+            *Issue:* [#${{ github.event.issue.number }} - ${{ github.event.issue.title }}](${{ github.event.issue.html_url }})
+
+      # Step for ISSUE COMMENT events
+      - name: Notify on Issue Comment
+        if: github.event_name == 'issue_comment'
+        uses: cbrgm/telegram-github-action@v1
+        with:
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          parse-mode: 'markdown'
+          message: |
+            💬 *New Comment on Issue*
+            *Repository:* `${{ github.repository }}`
+            *By:* `${{ github.actor }}`
+            *Issue:* [#${{ github.event.issue.number }} - ${{ github.event.issue.title }}](${{ github.event.comment.html_url }})
+            *Comment:*
+            `${{ github.event.comment.body }}`
+
+      # Step for PULL REQUEST events
+      - name: Notify on Pull Request Action
+        if: github.event_name == 'pull_request'
+        uses: cbrgm/telegram-github-action@v1
+        with:
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          parse-mode: 'markdown'
+          message: |
+            🔀 *Pull Request `${{ github.event.action }}`*
+            *Repository:* `${{ github.repository }}`
+            *By:* `${{ github.actor }}`
+            *PR:* [#${{ github.event.pull_request.number }} - ${{ github.event.pull_request.title }}](${{ github.event.pull_request.html_url }})
+
+      # Step for PULL REQUEST REVIEW COMMENT events
+      - name: Notify on PR Review Comment
+        if: github.event_name == 'pull_request_review_comment'
+        uses: cbrgm/telegram-github-action@v1
+        with:
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          parse-mode: 'markdown'
+          message: |
+            🗣️ *New Review Comment on PR*
+            *Repository:* `${{ github.repository }}`
+            *By:* `${{ github.actor }}`
+            *PR:* [#${{ github.event.pull_request.number }} - ${{ github.event.pull_request.title }}](${{ github.event.comment.html_url }})
+            *Comment:*
+            `${{ github.event.comment.body }}`
+            
+      # (Optional) A final step to notify on workflow failure
+      - name: Notify on Failure
+        if: failure()
+        uses: cbrgm/telegram-github-action@v1
+        with:
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          parse-mode: 'markdown'
+          message: |
+            ❌ *Workflow Failed!*
+            *Workflow:* `${{ github.workflow }}`
+            *Job:* `${{ github.job }}`
+            *Repository:* `${{ github.repository }}`
+            [View Run Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
