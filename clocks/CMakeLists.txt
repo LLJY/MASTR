@@ -1,8 +1,0 @@
-if (TARGET hardware_clocks)
-    add_subdirectory_exclude_platforms(detached_clk_peri)
-    add_subdirectory_exclude_platforms(hello_48MHz)
-    add_subdirectory_exclude_platforms(hello_gpout)
-    add_subdirectory_exclude_platforms(hello_resus)
-else()
-    message("Skipping clocks examples as hardware_clocks is unavailable on this platform")
-endif()

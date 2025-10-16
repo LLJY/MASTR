@@ -1,2 +1,0 @@
-add_subdirectory_exclude_platforms(blinky host)
-add_subdirectory_exclude_platforms(button host)

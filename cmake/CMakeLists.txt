@@ -1,1 +1,0 @@
-add_subdirectory_exclude_platforms(build_variants)

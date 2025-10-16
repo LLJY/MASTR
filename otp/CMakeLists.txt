@@ -1,1 +1,0 @@
-add_subdirectory_exclude_platforms(hello_otp host rp2040)
