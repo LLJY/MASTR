@@ -19,6 +19,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi
+
       - name: Set up Pico SDK
         run: |
           git clone https://github.com/raspberrypi/pico-sdk.git
