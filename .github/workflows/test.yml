@@ -11,18 +11,18 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      PICO_SDK_PATH: "${{ github.workspace }}/pico-sdk"
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Pico SDK
         run: |
           git clone https://github.com/raspberrypi/pico-sdk.git
           cd pico-sdk
           git submodule update --init
-          cd ..
-          export PICO_SDK_PATH=$(pwd)/pico-sdk
 
       - name: Build tests
         run: |
@@ -34,4 +34,4 @@ jobs:
       - name: Run tests
         run: |
           cd build
-          ctest
+          ctest --verbose

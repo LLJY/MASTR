@@ -8,22 +8,22 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      PICO_SDK_PATH: "${{ github.workspace }}/pico-sdk"
 
     strategy:
       matrix:
-        board: [pico2, picow]
+        board: [pico2, pico_w]
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Pico SDK
         run: |
           git clone https://github.com/raspberrypi/pico-sdk.git
           cd pico-sdk
           git submodule update --init
-          cd ..
-          export PICO_SDK_PATH=$(pwd)/pico-sdk
 
       - name: Build
         run: |
@@ -33,7 +33,7 @@ jobs:
           make
 
       - name: Upload UF2
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.board }}-uf2
           path: build/pico_project_template.uf2
