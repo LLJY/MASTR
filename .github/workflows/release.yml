@@ -1,0 +1,72 @@
+name: Create Release and Upload UF2s
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build_and_release:
+    runs-on: ubuntu-latest
+    env:
+      PICO_SDK_PATH: "${{ github.workspace }}/pico-sdk"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi
+
+      - name: Set up Pico SDK
+        run: |
+          git clone https://github.com/raspberrypi/pico-sdk.git
+          cd pico-sdk
+          git submodule update --init
+
+      - name: Build for pico2_w
+        run: |
+          mkdir build_pico2_w
+          cd build_pico2_w
+          cmake .. -DPICO_BOARD=pico2_w
+          make
+
+      - name: Build for pico_w
+        run: |
+          mkdir build_pico_w
+          cd build_pico_w
+          cmake .. -DPICO_BOARD=pico_w
+          make
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+      - name: Upload pico2_w UF2
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./build_pico2_w/pico_project_template.uf2
+          asset_name: pico2_w.uf2
+          asset_content_type: application/octet-stream
+
+      - name: Upload pico_w UF2
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./build_pico_w/pico_project_template.uf2
+          asset_name: pico_w.uf2
+          asset_content_type: application/octet-stream
