@@ -17,7 +17,7 @@ void printhelp() {
 void __not_in_flash_func(adc_capture)(uint16_t *buf, size_t count) {
     adc_fifo_setup(true, false, 0, false, false);
     adc_run(true);
-    for (int i = 0; i < count; i = i + 1)
+    for (size_t i = 0; i < count; i = i + 1)
         buf[i] = adc_fifo_get_blocking();
     adc_run(false);
     adc_fifo_drain();
@@ -72,7 +72,7 @@ int main(void) {
                     printf("%03x\n", sample_buf[i]);
                 break;
             }
-            case 'w':
+            case 'w': {
                 printf("\nPress any key to stop wiggling\n");
                 int i = 1;
                 gpio_set_dir_all_bits(-1);
@@ -85,6 +85,7 @@ int main(void) {
                 gpio_set_dir_all_bits(0);
                 printf("Wiggling halted.\n");
                 break;
+            }
             case '\n':
             case '\r':
                 break;

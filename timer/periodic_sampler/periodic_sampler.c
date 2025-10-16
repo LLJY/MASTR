@@ -66,9 +66,10 @@ int main() {
 
     queue_free(&sample_fifo);
     printf("Done\n");
+    return 0;
 }
 
-bool timer_callback(repeating_timer_t *rt) {
+bool timer_callback(__unused repeating_timer_t *rt) {
     static int v = 100;
     element_t element = {
             .value = v

@@ -1,4 +1,2 @@
-if (NOT PICO_NO_HARDWARE)
-    add_subdirectory(usb)
-    add_subdirectory(serial)
-endif ()
+add_subdirectory_exclude_platforms(serial)
+add_subdirectory_exclude_platforms(usb)

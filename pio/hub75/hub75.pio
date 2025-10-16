@@ -1,3 +1,10 @@
+;
+; Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+;
+; SPDX-License-Identifier: BSD-3-Clause
+;
+.pio_version 0 // only requires PIO version 0
+
 .program hub75_row
 
 ; side-set pin 0 is LATCH

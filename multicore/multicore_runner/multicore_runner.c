@@ -8,9 +8,11 @@
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 
-///tag::multicore_dispatch[]
+/// \tag::multicore_dispatch[]
 
 #define FLAG_VALUE 123
+
+typedef int32_t (*func_ptr_t)(int32_t);
 
 void core1_entry() {
     while (1) {
@@ -18,9 +20,9 @@ void core1_entry() {
         // We have one incoming int32_t as a parameter, and will provide an
         // int32_t return value by simply pushing it back on the FIFO
         // which also indicates the result is ready.
-        int32_t (*func)() = (int32_t(*)()) multicore_fifo_pop_blocking();
+        func_ptr_t func = (func_ptr_t) multicore_fifo_pop_blocking();
         int32_t p = multicore_fifo_pop_blocking();
-        int32_t result = (*func)(p);
+        int32_t result = func(p);
         multicore_fifo_push_blocking(result);
     }
 }
@@ -37,7 +39,7 @@ int32_t fibonacci(int32_t n) {
     if (n == 0) return 0;
     if (n == 1) return 1;
 
-    int n1 = 0, n2 = 1, n3;
+    int n1 = 0, n2 = 1, n3 = 0;
 
     for (int i = 2; i <= n; i++) {
         n3 = n1 + n2;
@@ -77,7 +79,7 @@ int main() {
 
     printf("Fibonacci %d is %d\n", TEST_NUM, res);
 
-
+    return 0;
 }
 
-///end::multicore_dispatch[]
+/// \end::multicore_dispatch[]

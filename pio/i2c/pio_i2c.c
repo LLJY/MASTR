@@ -13,13 +13,13 @@ const int PIO_I2C_NAK_LSB    = 0;
 
 
 bool pio_i2c_check_error(PIO pio, uint sm) {
-    return !!(pio->irq & (1u << sm));
+    return pio_interrupt_get(pio, sm);
 }
 
 void pio_i2c_resume_after_error(PIO pio, uint sm) {
     pio_sm_drain_tx_fifo(pio, sm);
     pio_sm_exec(pio, sm, (pio->sm[sm].execctrl & PIO_SM0_EXECCTRL_WRAP_BOTTOM_BITS) >> PIO_SM0_EXECCTRL_WRAP_BOTTOM_LSB);
-    pio->irq = 1u << sm;
+    pio_interrupt_clear(pio, sm);
 }
 
 void pio_i2c_rx_enable(PIO pio, uint sm, bool en) {
@@ -32,7 +32,15 @@ void pio_i2c_rx_enable(PIO pio, uint sm, bool en) {
 static inline void pio_i2c_put16(PIO pio, uint sm, uint16_t data) {
     while (pio_sm_is_tx_fifo_full(pio, sm))
         ;
+    // some versions of GCC dislike this
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstrict-aliasing"
+#endif
     *(io_rw_16 *)&pio->txf[sm] = data;
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 }
 
 
@@ -43,7 +51,15 @@ void pio_i2c_put_or_err(PIO pio, uint sm, uint16_t data) {
             return;
     if (pio_i2c_check_error(pio, sm))
         return;
+    // some versions of GCC dislike this
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstrict-aliasing"
+#endif
     *(io_rw_16 *)&pio->txf[sm] = data;
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 }
 
 uint8_t pio_i2c_get(PIO pio, uint sm) {
@@ -51,9 +67,10 @@ uint8_t pio_i2c_get(PIO pio, uint sm) {
 }
 
 void pio_i2c_start(PIO pio, uint sm) {
-    pio_i2c_put_or_err(pio, sm, 1u << PIO_I2C_ICOUNT_LSB); // Escape code for 2 instruction sequence
+    pio_i2c_put_or_err(pio, sm, 2u << PIO_I2C_ICOUNT_LSB);                         // Escape code for 3 instruction sequence
     pio_i2c_put_or_err(pio, sm, set_scl_sda_program_instructions[I2C_SC1_SD0]);    // We are already in idle state, just pull SDA low
     pio_i2c_put_or_err(pio, sm, set_scl_sda_program_instructions[I2C_SC0_SD0]);    // Also pull clock low so we can present data
+    pio_i2c_put_or_err(pio, sm, pio_encode_mov(pio_isr, pio_null));                // Ensure ISR counter is clear following a write
 }
 
 void pio_i2c_stop(PIO pio, uint sm) {
@@ -64,11 +81,12 @@ void pio_i2c_stop(PIO pio, uint sm) {
 };
 
 void pio_i2c_repstart(PIO pio, uint sm) {
-    pio_i2c_put_or_err(pio, sm, 3u << PIO_I2C_ICOUNT_LSB);
+    pio_i2c_put_or_err(pio, sm, 4u << PIO_I2C_ICOUNT_LSB);
     pio_i2c_put_or_err(pio, sm, set_scl_sda_program_instructions[I2C_SC0_SD1]);
     pio_i2c_put_or_err(pio, sm, set_scl_sda_program_instructions[I2C_SC1_SD1]);
     pio_i2c_put_or_err(pio, sm, set_scl_sda_program_instructions[I2C_SC1_SD0]);
     pio_i2c_put_or_err(pio, sm, set_scl_sda_program_instructions[I2C_SC0_SD0]);
+    pio_i2c_put_or_err(pio, sm, pio_encode_mov(pio_isr, pio_null));
 }
 
 static void pio_i2c_wait_idle(PIO pio, uint sm) {

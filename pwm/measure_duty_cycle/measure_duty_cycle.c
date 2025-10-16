@@ -62,9 +62,9 @@ int main() {
     // For each of our test duty cycles, drive the output pin at that level,
     // and read back the actual output duty cycle using the other pin. The two
     // values should be very close!
-    for (int i = 0; i < count_of(test_duty_cycles); ++i) {
+    for (uint i = 0; i < count_of(test_duty_cycles); ++i) {
         float output_duty_cycle = test_duty_cycles[i];
-        pwm_set_gpio_level(OUTPUT_PIN, output_duty_cycle * (count_top + 1));
+        pwm_set_gpio_level(OUTPUT_PIN, (uint16_t) (output_duty_cycle * (count_top + 1)));
         float measured_duty_cycle = measure_duty_cycle(MEASURE_PIN);
         printf("Output duty cycle = %.1f%%, measured input duty cycle = %.1f%%\n",
                output_duty_cycle * 100.f, measured_duty_cycle * 100.f);

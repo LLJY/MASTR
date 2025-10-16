@@ -13,6 +13,7 @@
 #include "hardware/irq.h"
 #include "hardware/pwm.h"
 
+#ifdef PICO_DEFAULT_LED_PIN
 void on_pwm_wrap() {
     static int fade = 0;
     static bool going_up = true;
@@ -36,8 +37,12 @@ void on_pwm_wrap() {
     // Note this range matches with the wrap value
     pwm_set_gpio_level(PICO_DEFAULT_LED_PIN, fade * fade);
 }
+#endif
 
 int main() {
+#ifndef PICO_DEFAULT_LED_PIN
+#warning pwm/led_fade example requires a board with a regular LED
+#else
     // Tell the LED pin that the PWM is in charge of its value.
     gpio_set_function(PICO_DEFAULT_LED_PIN, GPIO_FUNC_PWM);
     // Figure out which slice we just connected to the LED pin
@@ -47,8 +52,8 @@ int main() {
     // and register our interrupt handler
     pwm_clear_irq(slice_num);
     pwm_set_irq_enabled(slice_num, true);
-    irq_set_exclusive_handler(PWM_IRQ_WRAP, on_pwm_wrap);
-    irq_set_enabled(PWM_IRQ_WRAP, true);
+    irq_set_exclusive_handler(PWM_DEFAULT_IRQ_NUM(), on_pwm_wrap);
+    irq_set_enabled(PWM_DEFAULT_IRQ_NUM(), true);
 
     // Get some sensible defaults for the slice configuration. By default, the
     // counter is allowed to wrap over its maximum range (0 to 2**16-1)
@@ -62,4 +67,5 @@ int main() {
     // can twiddle our thumbs
     while (1)
         tight_loop_contents();
+#endif
 }

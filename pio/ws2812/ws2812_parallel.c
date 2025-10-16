@@ -16,26 +16,29 @@
 #include "ws2812.pio.h"
 
 #define FRAC_BITS 4
-#define PIN_TX 0
+#define NUM_PIXELS 64
+#define WS2812_PIN_BASE 2
 
-CU_REGISTER_DEBUG_PINS(timing)
-CU_SELECT_DEBUG_PINS(timing)
+// Check the pin is compatible with the platform
+#if WS2812_PIN_BASE >= NUM_BANK0_GPIOS
+#error Attempting to use a pin>=32 on a platform that does not support it
+#endif
 
 // horrible temporary hack to avoid changing pattern code
-static uint8_t *current_string_out;
-static bool current_string_4color;
+static uint8_t *current_strip_out;
+static bool current_strip_4color;
 
 static inline void put_pixel(uint32_t pixel_grb) {
-    *current_string_out++ = pixel_grb & 0xffu;
-    *current_string_out++ = (pixel_grb >> 8u) & 0xffu;
-    *current_string_out++ = (pixel_grb >> 16u) & 0xffu;
-    if (current_string_4color) {
-        *current_string_out++ = 0; // todo adjust?
+    *current_strip_out++ = (pixel_grb >> 16u) & 0xffu;
+    *current_strip_out++ = (pixel_grb >> 8u) & 0xffu;
+    *current_strip_out++ = pixel_grb & 0xffu;
+    if (current_strip_4color) {
+        *current_strip_out++ = 0;  // todo adjust?
     }
 }
 
 static inline uint32_t urgb_u32(uint8_t r, uint8_t g, uint8_t b) {
-    return
+    return 
             ((uint32_t) (r) << 8) |
             ((uint32_t) (g) << 16) |
             (uint32_t) (b);
@@ -58,21 +61,21 @@ void pattern_snakes(uint len, uint t) {
 void pattern_random(uint len, uint t) {
     if (t % 8)
         return;
-    for (int i = 0; i < len; ++i)
+    for (uint i = 0; i < len; ++i)
         put_pixel(rand());
 }
 
 void pattern_sparkle(uint len, uint t) {
     if (t % 8)
         return;
-    for (int i = 0; i < len; ++i)
+    for (uint i = 0; i < len; ++i)
         put_pixel(rand() % 16 ? 0 : 0xffffffff);
 }
 
 void pattern_greys(uint len, uint t) {
-    int max = 100; // let's not draw too much current!
+    uint max = 100; // let's not draw too much current!
     t %= max;
-    for (int i = 0; i < len; ++i) {
+    for (uint i = 0; i < len; ++i) {
         put_pixel(t * 0x10101);
         if (++t >= max) t = 0;
     }
@@ -80,7 +83,7 @@ void pattern_greys(uint len, uint t) {
 
 void pattern_solid(uint len, uint t) {
     t = 1;
-    for (int i = 0; i < len; ++i) {
+    for (uint i = 0; i < len; ++i) {
         put_pixel(t * 0x10101);
     }
 }
@@ -97,13 +100,13 @@ void pattern_fade(uint len, uint t) {
     slow_t = level;
     slow_t %= max;
 
-    static int error;
+    static int error = 0;
     slow_t += error;
     error = slow_t & ((1u << shift) - 1);
     slow_t >>= shift;
     slow_t *= 0x010101;
 
-    for (int i = 0; i < len; ++i) {
+    for (uint i = 0; i < len; ++i) {
         put_pixel(slow_t);
     }
 }
@@ -123,7 +126,7 @@ const struct {
 
 #define VALUE_PLANE_COUNT (8 + FRAC_BITS)
 // we store value (8 bits + fractional bits of a single color (R/G/B/W) value) for multiple
-// strings, in bit planes. bit plane N has the Nth bit of each string.
+// strips of pixels, in bit planes. bit plane N has the Nth bit of each strip of pixels.
 typedef struct {
     // stored MSB first
     uint32_t planes[VALUE_PLANE_COUNT];
@@ -151,17 +154,17 @@ typedef struct {
     uint8_t *data;
     uint data_len;
     uint frac_brightness; // 256 = *1.0;
-} string_t;
+} strip_t;
 
 // takes 8 bit color values, multiply by brightness and store in bit planes
-void transform_strings(string_t **strings, uint num_strings, value_bits_t *values, uint value_length,
+void transform_strips(strip_t **strips, uint num_strips, value_bits_t *values, uint value_length,
                        uint frac_brightness) {
     for (uint v = 0; v < value_length; v++) {
         memset(&values[v], 0, sizeof(values[v]));
-        for (int i = 0; i < num_strings; i++) {
-            if (v < strings[i]->data_len) {
+        for (uint i = 0; i < num_strips; i++) {
+            if (v < strips[i]->data_len) {
                 // todo clamp?
-                uint32_t value = (strings[i]->data[v] * strings[i]->frac_brightness) >> 8u;
+                uint32_t value = (strips[i]->data[v] * strips[i]->frac_brightness) >> 8u;
                 value = (value * frac_brightness) >> 8u;
                 for (int j = 0; j < VALUE_PLANE_COUNT && value; j++, value >>= 1u) {
                     if (value & 1u) values[v].planes[VALUE_PLANE_COUNT - 1 - j] |= 1u << i;
@@ -177,33 +180,31 @@ void dither_values(const value_bits_t *colors, value_bits_t *state, const value_
     }
 }
 
-#define MAX_LENGTH 100
+// requested colors * 4 to allow for RGBW
+static value_bits_t colors[NUM_PIXELS * 4];
+// double buffer the state of the pixel strip, since we update next version in parallel with DMAing out old version
+static value_bits_t states[2][NUM_PIXELS * 4];
 
-// requested colors * 4 to allow for WRGB
-static value_bits_t colors[MAX_LENGTH * 4];
-// double buffer the state of the string, since we update next version in parallel with DMAing out old version
-static value_bits_t states[2][MAX_LENGTH * 4];
+// example - strip 0 is RGB only
+static uint8_t strip0_data[NUM_PIXELS * 3];
+// example - strip 1 is RGBW
+static uint8_t strip1_data[NUM_PIXELS * 4];
 
-// example - string 0 is RGB only
-static uint8_t string0_data[MAX_LENGTH * 3];
-// example - string 1 is WRGB
-static uint8_t string1_data[MAX_LENGTH * 4];
-
-string_t string0 = {
-        .data = string0_data,
-        .data_len = sizeof(string0_data),
+strip_t strip0 = {
+        .data = strip0_data,
+        .data_len = sizeof(strip0_data),
         .frac_brightness = 0x40,
 };
 
-string_t string1 = {
-        .data = string1_data,
-        .data_len = sizeof(string1_data),
+strip_t strip1 = {
+        .data = strip1_data,
+        .data_len = sizeof(strip1_data),
         .frac_brightness = 0x100,
 };
 
-string_t *strings[] = {
-        &string0,
-        &string1,
+strip_t *strips[] = {
+        &strip0,
+        &strip1,
 };
 
 // bit plane content dma channel
@@ -216,14 +217,14 @@ string_t *strings[] = {
 #define DMA_CHANNELS_MASK (DMA_CHANNEL_MASK | DMA_CB_CHANNEL_MASK)
 
 // start of each value fragment (+1 for NULL terminator)
-static uintptr_t fragment_start[MAX_LENGTH * 4 + 1];
+static uintptr_t fragment_start[NUM_PIXELS * 4 + 1];
 
 // posted when it is safe to output a new set of values
 static struct semaphore reset_delay_complete_sem;
 // alarm handle for handling delay
 alarm_id_t reset_delay_alarm_id;
 
-int64_t reset_delay_complete(alarm_id_t id, void *user_data) {
+int64_t reset_delay_complete(__unused alarm_id_t id, __unused void *user_data) {
     reset_delay_alarm_id = 0;
     sem_release(&reset_delay_complete_sem);
     // no repeat
@@ -235,7 +236,6 @@ void __isr dma_complete_handler() {
         // clear IRQ
         dma_hw->ints0 = DMA_CHANNEL_MASK;
         // when the dma is complete we start the reset delay timer
-        DEBUG_PINS_SET(timing, 4);
         if (reset_delay_alarm_id) cancel_alarm(reset_delay_alarm_id);
         reset_delay_alarm_id = add_alarm_in_us(400, reset_delay_complete, NULL, true);
     }
@@ -271,30 +271,31 @@ void dma_init(PIO pio, uint sm) {
     irq_set_enabled(DMA_IRQ_0, true);
 }
 
-void output_strings_dma(value_bits_t *bits, uint value_length) {
-    DEBUG_PINS_SET(timing, 3);
+void output_strips_dma(value_bits_t *bits, uint value_length) {
     for (uint i = 0; i < value_length; i++) {
         fragment_start[i] = (uintptr_t) bits[i].planes; // MSB first
     }
     fragment_start[value_length] = 0;
     dma_channel_hw_addr(DMA_CB_CHANNEL)->al3_read_addr_trig = (uintptr_t) fragment_start;
-    DEBUG_PINS_CLR(timing, 3);
 }
 
 
 int main() {
     //set_sys_clock_48();
     stdio_init_all();
-    puts("WS2812 parallel");
-#if PIN_TX != 3
-    gpio_debug_pins_init();
-#endif
-    // todo get free sm
-    PIO pio = pio0;
-    int sm = 0;
-    uint offset = pio_add_program(pio, &ws2812_parallel_program);
+    printf("WS2812 parallel using pin %d\n", WS2812_PIN_BASE);
 
-    ws2812_parallel_program_init(pio, sm, offset, PIN_TX, count_of(strings), 800000);
+    PIO pio;
+    uint sm;
+    uint offset;
+
+    // This will find a free pio and state machine for our program and load it for us
+    // We use pio_claim_free_sm_and_add_program_for_gpio_range (for_gpio_range variant)
+    // so we will get a PIO instance suitable for addressing gpios >= 32 if needed and supported by the hardware
+    bool success = pio_claim_free_sm_and_add_program_for_gpio_range(&ws2812_parallel_program, &pio, &sm, &offset, WS2812_PIN_BASE, count_of(strips), true);
+    hard_assert(success);
+
+    ws2812_parallel_program_init(pio, sm, offset, WS2812_PIN_BASE, count_of(strips), 800000);
 
     sem_init(&reset_delay_complete_sem, 1, 1); // initially posted so we don't block first time
     dma_init(pio, sm);
@@ -308,28 +309,17 @@ int main() {
         int brightness = 0;
         uint current = 0;
         for (int i = 0; i < 1000; ++i) {
-            int n = 64;
-            DEBUG_PINS_SET(timing, 1);
-            current_string_out = string0.data;
-            current_string_4color = false;
-            pattern_table[pat].pat(n, t);
-            current_string_out = string1.data;
-            current_string_4color = true;
-            pattern_table[pat].pat(n, t);
-            DEBUG_PINS_CLR(timing, 1);
+            current_strip_out = strip0.data;
+            current_strip_4color = false;
+            pattern_table[pat].pat(NUM_PIXELS, t);
+            current_strip_out = strip1.data;
+            current_strip_4color = true;
+            pattern_table[pat].pat(NUM_PIXELS, t);
 
-            DEBUG_PINS_SET(timing, 2);
-            transform_strings(strings, count_of(strings), colors, n * 4, brightness);
-            DEBUG_PINS_CLR(timing, 2);
-
-            DEBUG_PINS_SET(timing, 1);
-            dither_values(colors, states[current], states[current ^ 1], n * 4);
-            DEBUG_PINS_CLR(timing, 1);
-
+            transform_strips(strips, count_of(strips), colors, NUM_PIXELS * 4, brightness);
+            dither_values(colors, states[current], states[current ^ 1], NUM_PIXELS * 4);
             sem_acquire_blocking(&reset_delay_complete_sem);
-            DEBUG_PINS_CLR(timing, 4);
-
-            output_strings_dma(states[current], n * 4);
+            output_strips_dma(states[current], NUM_PIXELS * 4);
 
             current ^= 1;
             t += dir;
@@ -338,4 +328,7 @@ int main() {
         }
         memset(&states, 0, sizeof(states)); // clear out errors
     }
+
+    // This will free resources and unload our program
+    pio_remove_program_and_unclaim_sm(&ws2812_parallel_program, pio, sm, offset);
 }

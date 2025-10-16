@@ -22,7 +22,7 @@ uint32_t buf[count_of(random_test_data)];
 
 int main() {
     stdio_init_all();
-    for (int i = 0; i < count_of(random_test_data); ++i)
+    for (uint i = 0; i < count_of(random_test_data); ++i)
         buf[i] = 0;
 
     // This example won't work with PICO_NO_FLASH builds. Note that XIP stream
@@ -41,12 +41,12 @@ int main() {
     // writing 0 to stream_ctr.
     // It's a good idea to drain the FIFO first!
     printf("Starting stream from %p\n", random_test_data);
-    //tag::start_stream[]
+    /// \tag::start_stream[]
     while (!(xip_ctrl_hw->stat & XIP_STAT_FIFO_EMPTY))
         (void) xip_ctrl_hw->stream_fifo;
     xip_ctrl_hw->stream_addr = (uint32_t) &random_test_data[0];
     xip_ctrl_hw->stream_ctr = count_of(random_test_data);
-    //end::start_stream[]
+    /// \end::start_stream[]
 
     // Start DMA transfer from XIP stream FIFO to our buffer in memory. Use
     // the auxiliary bus slave for the DMA<-FIFO accesses, to avoid stalling
@@ -54,7 +54,7 @@ int main() {
     // example, but it can have a huge effect on DMA throughput.
 
     printf("Starting DMA\n");
-    //tag::start_dma[]
+    /// \tag::start_dma[]
     const uint dma_chan = 0;
     dma_channel_config cfg = dma_channel_get_default_config(dma_chan);
     channel_config_set_read_increment(&cfg, false);
@@ -68,14 +68,14 @@ int main() {
             count_of(random_test_data), // Transfer count
             true                        // Start immediately!
     );
-    //end::start_dma[]
+    /// \end::start_dma[]
 
     dma_channel_wait_for_finish_blocking(dma_chan);
 
     printf("DMA complete\n");
 
     bool mismatch = false;
-    for (int i = 0; i < count_of(random_test_data); ++i) {
+    for (uint i = 0; i < count_of(random_test_data); ++i) {
         if (random_test_data[i] != buf[i]) {
             printf("Data mismatch: %08x (actual) != %08x (expected)\n", buf[i], random_test_data[i]);
             mismatch = true;
