@@ -1,2 +1,0 @@
-add_subdirectory_exclude_platforms(serial)
-add_subdirectory_exclude_platforms(usb)

@@ -1,5 +1,0 @@
-if (TARGET hardware_resets)
-    add_subdirectory_exclude_platforms(hello_reset)
-else()
-    message("Skipping reset examples as hardware_resets is unavailable on this platform")
-endif()
