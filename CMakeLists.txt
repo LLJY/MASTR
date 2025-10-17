@@ -54,11 +54,31 @@ if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
     add_compile_options(-Wno-maybe-uninitialized)
 endif()
 
+add_library(cryptoauthlib_target
+    ${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib/lib/atca_status.c
+    ${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib/lib/basic/atca_basic.c
+    # Add other necessary.c files from cryptoauthlib/lib/...
+)
+# Add the library's include directories
+target_include_directories(cryptoauthlib_target PUBLIC
+    ${CMAKE_CURRENT_LIST_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib/lib
+)
+
+# --- Custom HAL ---
+# Add our custom HAL implementation
+add_library(pico_hal
+    ${CMAKE_CURRENT_LIST_DIR}/hal/hal_pico_i2c.c
+)
+target_include_directories(pico_hal PUBLIC
+    ${CMAKE_CURRENT_LIST_DIR}/hal
+)
+
 add_executable(pico_project_template
     src/main.c
 )
 # Link to pico_stdlib
-target_link_libraries(pico_project_template pico_stdlib)
+target_link_libraries(pico_project_template pico_stdlib hardware_i2c cryptoauthlib_target pico_hal)
 
 # Enable usb output, disable uart output
 pico_enable_stdio_usb(pico_project_template 1)
