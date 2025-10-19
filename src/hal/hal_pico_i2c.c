@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2025 Lucas Lee Jing Yi
+ * SPDX-License-Identifier: MIT
+ */
+
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>

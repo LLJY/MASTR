@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2025 Lucas Lee Jing Yi
+ * SPDX-License-Identifier: MIT
+ */
+
 #ifndef HAL_PICO_I2C_H
 #define HAL_PICO_I2C_H
 
