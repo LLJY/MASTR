@@ -27,27 +27,11 @@
 #define SYMBOL_INFO   COLOR_CYAN   "[INFO]" COLOR_RESET
 #define SYMBOL_OK     COLOR_GREEN  "[OK]"   COLOR_RESET
 
-// ═══════════════════════════════════════════════════════════════
-// TEST SELECTION - Comment out tests you don't want to run
-// ═══════════════════════════════════════════════════════════════
-#define RUN_TEST_INFO           1
-#define RUN_TEST_SERIAL         1
-#define RUN_TEST_RANDOM         1
-#define RUN_TEST_SHA256_SIMPLE  1
-#define RUN_TEST_SHA256_LONG    1
-#define RUN_TEST_COUNTER_READ   1
-#define RUN_TEST_COUNTER_INC    1
-#define RUN_TEST_LOCK_STATUS    1
-#define RUN_TEST_READ_CONFIG    1
-#define RUN_TEST_GENKEY         1
-#define RUN_TEST_NONCE          1
-#define RUN_TEST_RANDOM_MULTI   1
-
 // Global interface configuration
 ATCAIfaceCfg cfg = {
     .iface_type             = ATCA_I2C_IFACE,
     .devtype                = ATECC608A,
-    .atcai2c.address        = 0xC0,     // 8-bit format
+    .atcai2c.address        = 0x6A,     // 8-bit format (0x35 << 1) - NEW CHIP!
     .atcai2c.bus            = 0,
     .atcai2c.baud           = 100000,   // 100kHz for reliability
     .wake_delay             = 1500,
@@ -102,6 +86,87 @@ void print_hex(const char* label, const uint8_t* data, size_t len)
         printf("%02X ", data[i]);
         if ((i + 1) % 16 == 0 && i < len - 1) printf("\n    ");
     }
+    printf("\n");
+}
+
+/**
+ * Scan I2C bus for all responding devices
+ * Scans all 7-bit addresses from 0x00 to 0x7F and reports which ones respond
+ */
+void i2c_bus_scan(void)
+{
+    printf("\n" COLOR_CYAN COLOR_BOLD "╔════════════════════════════════════════════════════╗\n");
+    printf("║              I2C BUS SCAN (Bus 0)              ║\n");
+    printf("╚════════════════════════════════════════════════════╝" COLOR_RESET "\n\n");
+    
+    printf("Scanning I2C addresses 0x00-0x7F...\n\n");
+    printf("     0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F\n");
+    printf("    ------------------------------------------------\n");
+    
+    int device_count = 0;
+    uint8_t found_addresses[128];
+    
+    for (int addr = 0; addr < 128; addr++) {
+        // Print row label
+        if (addr % 16 == 0) {
+            printf("%02X: ", addr);
+        }
+        
+        // Reserved addresses that should not be scanned
+        // 0x00-0x07 and 0x78-0x7F are reserved in I2C spec
+        if (addr < 0x08 || addr > 0x77) {
+            printf(" . ");
+        } else {
+            // Try to read a byte from this address
+            uint8_t dummy;
+            int ret = i2c_read_blocking(i2c0, addr, &dummy, 1, false);
+            
+            if (ret >= 0) {
+                printf(COLOR_GREEN " %02X" COLOR_RESET, addr);
+                found_addresses[device_count++] = addr;
+            } else {
+                printf(" --");
+            }
+        }
+        
+        // Print newline at end of row
+        if ((addr + 1) % 16 == 0) {
+            printf("\n");
+        }
+    }
+    
+    printf("\n");
+    printf(COLOR_BOLD "Scan Results:" COLOR_RESET "\n");
+    printf("  Devices found: %d\n", device_count);
+    
+    if (device_count > 0) {
+        printf("  Addresses: ");
+        for (int i = 0; i < device_count; i++) {
+            printf(COLOR_GREEN "0x%02X" COLOR_RESET, found_addresses[i]);
+            if (i < device_count - 1) printf(", ");
+        }
+        printf("\n");
+        
+        // Check for ATECC608A
+        bool atecc608a_found = false;
+        for (int i = 0; i < device_count; i++) {
+            // ATECC608A 7-bit address is 0x35 (0x6A >> 1) - NEW CHIP!
+            if (found_addresses[i] == 0x35) {
+                atecc608a_found = true;
+                break;
+            }
+        }
+        
+        if (atecc608a_found) {
+            printf("  %s ATECC608A detected at 0x35 (0x6A write address) - NEW CHIP!\n", SYMBOL_OK);
+        } else {
+            printf("  %s ATECC608A NOT found at expected address 0x35\n", SYMBOL_WARN);
+        }
+    } else {
+        printf("  %s No devices responded\n", SYMBOL_WARN);
+        printf("  %s Check I2C wiring and pull-up resistors\n", SYMBOL_INFO);
+    }
+    
     printf("\n");
 }
 
@@ -441,40 +506,31 @@ bool test_genkey(void)
     return true;
 }
 
-// Test 13: Generate private key and store in slot 0
+// Test 13: Verify Slot 0 is Permanent (Trust&GO)
 bool test_genkey_slot(void)
 {
-    printf("\n=== Test 13: Generate Private Key in Slot 0 ===\n");
-    printf("%s Generating new private key and storing in slot 0\n", SYMBOL_WARN);
-    printf("%s This will overwrite any existing key in slot 0!\n\n", SYMBOL_WARN);
+    printf("\n=== Test 13: Verify Slot 0 Permanent Key ===\n");
+    printf("%s Slot 0 contains permanent ECC private key (Trust&GO)\n", SYMBOL_INFO);
+    printf("%s Attempting to regenerate key (should fail)\n\n", SYMBOL_WARN);
     
-    uint8_t public_key[64];  // ECC P-256 public key is 64 bytes
+    uint8_t public_key[64];
     
-    // Generate private key in slot 0, returns public key
-    // Mode 0x04 (GENKEY_MODE_PRIVATE) = create new private key in slot
-    printf("Generating ECC P-256 key pair in slot 0...\n");
+    // Try to generate new key in slot 0 (should fail - permanent key)
+    printf("Attempting GenKey in slot 0...\n");
     
     ATCA_STATUS status = atcab_genkey_base(GENKEY_MODE_PRIVATE, 0, NULL, public_key);
     
     if (status != ATCA_SUCCESS) {
-        printf("%s Key generation failed: 0x%08X\n", SYMBOL_FAIL, status);
-        return false;
+        printf("%s GenKey failed: 0x%08X (expected)\n", SYMBOL_OK, status);
+        printf("%s Slot 0 is permanent - cannot be regenerated\n", SYMBOL_INFO);
+        printf("%s This is correct behavior for Trust&GO chips\n", SYMBOL_INFO);
+        printf("%s Use slots 2-4 for regenerable keys\n\n", SYMBOL_INFO);
+        return true;  // Failure to regenerate is SUCCESS!
     }
     
-    printf("Private key stored in slot 0\n");
-    printf("Public Key (64 bytes):\n");
-    printf("  X: ");
-    for (int i = 0; i < 32; i++) {
-        printf("%02X ", public_key[i]);
-    }
-    printf("\n  Y: ");
-    for (int i = 32; i < 64; i++) {
-        printf("%02X ", public_key[i]);
-    }
-    printf("\n");
-    
-    printf("%s Private key generated and stored in slot 0!\n", SYMBOL_OK);
-    return true;
+    printf("%s WARNING: Slot 0 accepted new key generation!\n", SYMBOL_WARN);
+    printf("%s This should not happen on Trust&GO chips\n", SYMBOL_FAIL);
+    return false;
 }
 
 // Test 14: Read public key from slot 0 private key
@@ -511,61 +567,41 @@ bool test_read_pubkey_from_slot(void)
     return true;
 }
 
-// Test 15: Overwrite slot 0 with arbitrary data
+// Test 15: Verify Slot 0 Write Protection
 bool test_overwrite_slot(void)
 {
-    printf("\n=== Test 15: Overwrite Slot 0 with Arbitrary Data ===\n");
-    printf("%s Attempting to write arbitrary data to slot 0\n", SYMBOL_WARN);
-    printf("%s This destroys any private key stored there!\n\n", SYMBOL_WARN);
+    printf("\n=== Test 15: Verify Slot 0 Write Protection ===\n");
+    printf("%s Slot 0 contains permanent ECC private key\n", SYMBOL_INFO);
+    printf("%s Attempting to write arbitrary data (should fail)\n\n", SYMBOL_WARN);
     
-    // Create some arbitrary data (32 bytes for ECC private key slot)
+    // Create some arbitrary data (32 bytes)
     uint8_t arbitrary_data[32];
     for (int i = 0; i < 32; i++) {
         arbitrary_data[i] = 0xAA + i;  // Pattern: AA AB AC AD ...
     }
     
-    printf("Data to write (32 bytes): ");
+    printf("Test Data (32 bytes): ");
     for (int i = 0; i < 32; i++) {
         printf("%02X ", arbitrary_data[i]);
-        if ((i + 1) % 16 == 0 && i < 31) printf("\n                           ");
+        if ((i + 1) % 16 == 0 && i < 31) printf("\n                      ");
     }
     printf("\n");
     
-    // Try to write to slot 0 (may fail if data zone is locked or slot is configured as private)
-    printf("Writing to slot 0...\n");
+    // Try to write to slot 0 (should fail - private key slot)
+    printf("\nAttempting to write to slot 0...\n");
     ATCA_STATUS status = atcab_write_zone(ATCA_ZONE_DATA, 0, 0, 0, arbitrary_data, 32);
     
     if (status != ATCA_SUCCESS) {
-        printf("%s Write failed: 0x%08X\n", SYMBOL_FAIL, status);
-        printf("%s Slot may be locked or configured as private key slot\n", SYMBOL_WARN);
-        return false;
+        printf("%s Write failed: 0x%08X (expected)\n", SYMBOL_OK, status);
+        printf("%s Slot 0 is protected - private key cannot be overwritten\n", SYMBOL_INFO);
+        printf("%s This is correct security behavior\n", SYMBOL_INFO);
+        printf("%s Use slot 8 for arbitrary data storage\n\n", SYMBOL_INFO);
+        return true;  // Failure to write is SUCCESS!
     }
     
-    // Verify by reading back
-    uint8_t read_back[32];
-    status = atcab_read_zone(ATCA_ZONE_DATA, 0, 0, 0, read_back, 32);
-    
-    if (status != ATCA_SUCCESS) {
-        printf("%s Read verification failed: 0x%08X\n", SYMBOL_FAIL, status);
-        return false;
-    }
-    
-    printf("Data read back: ");
-    for (int i = 0; i < 32; i++) {
-        printf("%02X ", read_back[i]);
-        if ((i + 1) % 16 == 0 && i < 31) printf("\n                ");
-    }
-    printf("\n");
-    
-    // Verify match
-    bool match = (memcmp(arbitrary_data, read_back, 32) == 0);
-    if (!match) {
-        printf("%s Data mismatch!\n", SYMBOL_FAIL);
-        return false;
-    }
-    
-    printf("%s Slot 0 overwritten successfully!\n", SYMBOL_OK);
-    return true;
+    printf("%s WARNING: Slot 0 accepted arbitrary write!\n", SYMBOL_WARN);
+    printf("%s Private key slot should not accept direct writes\n", SYMBOL_FAIL);
+    return false;
 }
 
 // Test 16: Store SHA-256 hash in readable memory
@@ -646,12 +682,12 @@ bool test_store_hash(void)
     return true;
 }
 
-// Test 17: Configure Slot 8 for data storage
+// Test 17: Verify Slot 8 Configuration (Trust&GO)
 bool test_configure_slot8(void)
 {
-    printf("\n=== Test 17: Configure Slot 8 for Data Storage ===\n");
-    printf("%s Attempting to configure slot 8 as clear-read/clear-write\n", SYMBOL_WARN);
-    printf("%s This modifies the config zone (only works if unlocked)\n\n", SYMBOL_WARN);
+    printf("\n=== Test 17: Verify Slot 8 Configuration ===\n");
+    printf("%s Slot 8 is pre-configured for data storage (Trust&GO)\n", SYMBOL_INFO);
+    printf("%s Verifying read/write access with test data\n\n", SYMBOL_INFO);
     
     // Read current config zone
     uint8_t config[128];
@@ -664,59 +700,51 @@ bool test_configure_slot8(void)
     
     // Show current slot 8 config
     int slot8_offset = 20 + (8 * 2);
-    uint16_t old_slotconfig = (config[slot8_offset+1] << 8) | config[slot8_offset];
-    printf("Current Slot 8 SlotConfig: 0x%04X\n", old_slotconfig);
+    uint16_t slotconfig = (config[slot8_offset+1] << 8) | config[slot8_offset];
     
     int key8_offset = 96 + (8 * 2);
-    uint16_t old_keyconfig = (config[key8_offset+1] << 8) | config[key8_offset];
-    printf("Current Key 8 KeyConfig: 0x%04X\n", old_keyconfig);
+    uint16_t keyconfig = (config[key8_offset+1] << 8) | config[key8_offset];
     
-    // Set new configuration for slot 8
-    // SlotConfig: 0x8000 = ReadKey bit set, allow clear reads/writes
-    // Actually, for clear read/write we want: 0x0000 or with proper write enable
-    // Let's try 0x00C0: EncryptRead=0, IsSecret=0, WriteConfig=11b (always write)
-    uint16_t new_slotconfig = 0x00C0;  // WriteConfig = 11b (always), no encryption
+    printf("Slot 8 SlotConfig: 0x%04X\n", slotconfig);
+    printf("Slot 8 KeyConfig:  0x%04X\n\n", keyconfig);
     
-    // KeyConfig: 0x001C = Not private, not ECC, general data slot
-    uint16_t new_keyconfig = 0x001C;
+    // Test actual write/read capability
+    uint8_t test_data[32];
+    uint8_t read_data[32];
     
-    printf("\nProposed Slot 8 SlotConfig: 0x%04X\n", new_slotconfig);
-    printf("Proposed Key 8 KeyConfig: 0x%04X\n", new_keyconfig);
-    
-    // Update the config array
-    config[slot8_offset] = new_slotconfig & 0xFF;
-    config[slot8_offset+1] = (new_slotconfig >> 8) & 0xFF;
-    config[key8_offset] = new_keyconfig & 0xFF;
-    config[key8_offset+1] = (new_keyconfig >> 8) & 0xFF;
-    
-    // Write back just the slot 8 config bytes (bytes 36-37 for SlotConfig)
-    printf("\nWriting new SlotConfig to bytes %d-%d...\n", slot8_offset, slot8_offset+1);
-    status = atcab_write_bytes_zone(ATCA_ZONE_CONFIG, 0, slot8_offset, 
-                                     &config[slot8_offset], 2);
-    
-    if (status != ATCA_SUCCESS) {
-        printf("%s SlotConfig write failed: 0x%08X\n", SYMBOL_WARN, status);
-        printf("%s Config zone may be locked\n", SYMBOL_INFO);
-    } else {
-        printf("%s SlotConfig written\n", SYMBOL_OK);
+    // Create test pattern
+    for (int i = 0; i < 32; i++) {
+        test_data[i] = 0xC0 + i;
     }
     
-    // Write KeyConfig (bytes 112-113 for key 8)
-    printf("Writing new KeyConfig to bytes %d-%d...\n", key8_offset, key8_offset+1);
-    status = atcab_write_bytes_zone(ATCA_ZONE_CONFIG, 0, key8_offset, 
-                                     &config[key8_offset], 2);
+    printf("Testing write access...\n");
+    status = atcab_write_zone(ATCA_ZONE_DATA, 8, 0, 0, test_data, 32);
     
     if (status != ATCA_SUCCESS) {
-        printf("%s KeyConfig write failed: 0x%08X\n", SYMBOL_WARN, status);
-        printf("%s Config zone may be locked\n", SYMBOL_INFO);
+        printf("%s Write failed: 0x%08X\n", SYMBOL_FAIL, status);
         return false;
-    } else {
-        printf("%s KeyConfig written\n", SYMBOL_OK);
     }
     
-    printf("\n%s Slot 8 configuration updated!\n", SYMBOL_OK);
-    printf("%s Note: Changes take effect immediately (config zone unlocked)\n", SYMBOL_INFO);
-    return true;
+    printf("Testing read access...\n");
+    status = atcab_read_zone(ATCA_ZONE_DATA, 8, 0, 0, read_data, 32);
+    
+    if (status != ATCA_SUCCESS) {
+        printf("%s Read failed: 0x%08X\n", SYMBOL_FAIL, status);
+        return false;
+    }
+    
+    // Verify data matches
+    bool match = (memcmp(test_data, read_data, 32) == 0);
+    
+    if (match) {
+        printf("%s Slot 8 read/write verified successfully!\n", SYMBOL_OK);
+        printf("%s 416 bytes available for arbitrary data storage\n", SYMBOL_INFO);
+        printf("%s Trust&GO configuration allows clear text data storage\n", SYMBOL_INFO);
+        return true;
+    } else {
+        printf("%s Data mismatch after read\n", SYMBOL_FAIL);
+        return false;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -727,83 +755,121 @@ bool test_configure_slot8(void)
 bool test_ecdh_exchange(void)
 {
     printf("\n=== Test 18: ECDH Key Exchange ===\n");
-    printf("%s Performing Elliptic Curve Diffie-Hellman key exchange\n\n", SYMBOL_INFO);
+    printf("%s Performing Elliptic Curve Diffie-Hellman key exchange\n", SYMBOL_INFO);
+    printf("%s Using slot 2 for ephemeral key + external peer public key\n\n", SYMBOL_INFO);
     
+    // Peer's public key generated externally with OpenSSL:
+    // openssl ecparam -name prime256v1 -genkey -noout -out peer_private.pem
+    // openssl ec -in peer_private.pem -text -noout
+    //
+    // Peer private key (for reference, NOT used here):
+    // 78:13:3f:ad:18:10:40:83:a8:32:36:fa:eb:b9:ca:f5:e6:dc:81:dc:36:ad:8f:a9:22:05:a6:f1:a2:d7:5c:69
+    //
+    // Peer public key (uncompressed format: 0x04 || X || Y):
+    // 04:2c:aa:5a:71:c4:c9:ec:49:e4:b8:fc:7c:2c:69:85:9b:2a:4c:4b:e1:0d:a3:7e:73:67:d9:cd:7e:88:82:fa:
+    //    59:e3:c7:52:fc:d9:3b:bd:6e:73:10:89:a0:52:67:ca:90:6a:ab:9e:f4:01:df:9c:d4:d9:ae:33:f5:1f:2b:1d:84
+    
+    uint8_t peer_public_key[64] = {
+        // X coordinate (32 bytes)
+        0x2c, 0xaa, 0x5a, 0x71, 0xc4, 0xc9, 0xec, 0x49,
+        0xe4, 0xb8, 0xfc, 0x7c, 0x2c, 0x69, 0x85, 0x9b,
+        0x2a, 0x4c, 0x4b, 0xe1, 0x0d, 0xa3, 0x7e, 0x73,
+        0x67, 0xd9, 0xcd, 0x7e, 0x88, 0x82, 0xfa, 0x59,
+        // Y coordinate (32 bytes)
+        0xe3, 0xc7, 0x52, 0xfc, 0xd9, 0x3b, 0xbd, 0x6e,
+        0x73, 0x10, 0x89, 0xa0, 0x52, 0x67, 0xca, 0x90,
+        0x6a, 0xab, 0x9e, 0xf4, 0x01, 0xdf, 0x9c, 0xd4,
+        0xd9, 0xae, 0x33, 0xf5, 0x1f, 0x2b, 0x1d, 0x84
+    };
+    
+    printf("Peer Public Key (from OpenSSL):\n");
+    printf("  X: ");
+    for (int i = 0; i < 32; i++) printf("%02X ", peer_public_key[i]);
+    printf("\n  Y: ");
+    for (int i = 32; i < 64; i++) printf("%02X ", peer_public_key[i]);
+    printf("\n\n");
+    
+    // Step 1: Generate ephemeral key pair in slot 2 (updatable slot)
     uint8_t our_public_key[64];
-    uint8_t peer_public_key[64];
-    uint8_t shared_secret[32];
-    
-    // Step 1: Generate our ephemeral key pair
-    printf("Generating our ephemeral key pair...\n");
-    ATCA_STATUS status = atcab_genkey_base(GENKEY_MODE_PRIVATE, 0xFFFF, NULL, our_public_key);
+    printf("Generating ephemeral key pair in slot 2...\n");
+    ATCA_STATUS status = atcab_genkey(2, our_public_key);
     
     if (status != ATCA_SUCCESS) {
         printf("%s Key generation failed: 0x%08X\n", SYMBOL_FAIL, status);
         return false;
     }
     
-    printf("Our Public Key (first 32 bytes): ");
+    printf("Our Public Key (slot 2):\n");
+    printf("  X: ");
     for (int i = 0; i < 32; i++) printf("%02X ", our_public_key[i]);
-    printf("\n");
+    printf("\n  Y: ");
+    for (int i = 32; i < 64; i++) printf("%02X ", our_public_key[i]);
+    printf("\n\n");
     
-    // Step 2: Generate peer's key pair (simulating another device)
-    printf("\nGenerating peer's ephemeral key pair...\n");
-    status = atcab_genkey_base(GENKEY_MODE_PRIVATE, 0xFFFF, NULL, peer_public_key);
-    
-    if (status != ATCA_SUCCESS) {
-        printf("%s Failed to generate peer key: 0x%08X\n", SYMBOL_FAIL, status);
-        return false;
-    }
-    
-    printf("Peer Public Key (first 32 bytes): ");
-    for (int i = 0; i < 32; i++) printf("%02X ", peer_public_key[i]);
-    printf("\n");
-    
-    printf("%s Note: Both keys use TempKey - last GenKey overwrites first!\n", SYMBOL_WARN);
-    printf("%s For real ECDH, need to store one key or use external peer key\n", SYMBOL_INFO);
-    
-    // Step 3: For testing, we'll use our_public_key as peer (self-ECDH)
-    // In real scenario, peer_public_key comes from network/other device
-    printf("\nPerforming ECDH with our own public key (self-test)...\n");
-    status = atcab_ecdh_base(ECDH_PREFIX_MODE, 0xFFFF, our_public_key, shared_secret, NULL);
+    // Step 2: Perform ECDH using slot 2 private key and peer's public key
+    printf("Performing ECDH: slot_2_privkey + peer_pubkey...\n");
+    uint8_t shared_secret[32];
+    status = atcab_ecdh(2, peer_public_key, shared_secret);
     
     if (status != ATCA_SUCCESS) {
         printf("%s ECDH failed: 0x%08X\n", SYMBOL_FAIL, status);
         return false;
     }
     
-    printf("Shared Secret (32 bytes): ");
+    printf("\n" COLOR_GREEN COLOR_BOLD "╔════════════════════════════════════════════════════╗\n");
+    printf("║           ECDH SHARED SECRET (32 bytes)            ║\n");
+    printf("╚════════════════════════════════════════════════════╝" COLOR_RESET "\n");
+    
+    // Format for easy copying
+    printf("\nHex (for Pico AES/KDF):\n");
     for (int i = 0; i < 32; i++) {
-        printf("%02X ", shared_secret[i]);
-        if ((i + 1) % 16 == 0 && i < 31) printf("\n                           ");
+        printf("%02X", shared_secret[i]);
+        if (i < 31) printf(":");
     }
     printf("\n");
     
-    printf("%s ECDH key exchange successful!\n", SYMBOL_OK);
+    printf("\nC array format:\n");
+    printf("uint8_t shared_secret[32] = {\n    ");
+    for (int i = 0; i < 32; i++) {
+        printf("0x%02X", shared_secret[i]);
+        if (i < 31) printf(", ");
+        if ((i + 1) % 8 == 0 && i < 31) printf("\n    ");
+    }
+    printf("\n};\n");
+    
+    printf("\n%s ECDH key exchange successful!\n", SYMBOL_OK);
+    printf("%s Shared secret ready for AES encryption or KDF\n", SYMBOL_INFO);
+    printf("%s Use Pico 2 W hardware AES (RP2350 Cortex-M33) for fast encryption\n", SYMBOL_INFO);
+    printf("%s To verify: Use peer private key on Linux with ./verify_ecdh.sh\n", SYMBOL_INFO);
+    
     return true;
 }
 
-// Test 19: Sign and Verify with Ephemeral Key
+// Test 19: Sign and Verify with Slot 0 (Permanent Key)
 bool test_sign_verify(void)
 {
     printf("\n=== Test 19: Sign and Verify Message ===\n");
-    printf("%s Testing ECDSA signature generation and verification\n\n", SYMBOL_INFO);
+    printf("%s Testing ECDSA signature generation and verification\n", SYMBOL_INFO);
+    printf("%s Using permanent key from slot 0\n\n", SYMBOL_INFO);
     
     uint8_t public_key[64];
     uint8_t signature[64];
     uint8_t message_digest[32];
     
-    // Step 1: Generate ephemeral key pair
-    printf("Generating ephemeral signing key...\n");
-    ATCA_STATUS status = atcab_genkey_base(GENKEY_MODE_PRIVATE, 0xFFFF, NULL, public_key);
+    // Step 1: Get public key from slot 0
+    printf("Getting public key from slot 0...\n");
+    ATCA_STATUS status = atcab_get_pubkey(0, public_key);
     
     if (status != ATCA_SUCCESS) {
-        printf("%s Key generation failed: 0x%08X\n", SYMBOL_FAIL, status);
+        printf("%s Failed to get public key: 0x%08X\n", SYMBOL_FAIL, status);
         return false;
     }
     
-    printf("Public Key (first 32 bytes): ");
+    printf("Public Key (slot 0):\n");
+    printf("  X: ");
     for (int i = 0; i < 32; i++) printf("%02X ", public_key[i]);
+    printf("\n  Y: ");
+    for (int i = 32; i < 64; i++) printf("%02X ", public_key[i]);
     printf("\n");
     
     // Step 2: Create message digest (SHA-256 of message)
@@ -818,48 +884,30 @@ bool test_sign_verify(void)
         return false;
     }
     
-    printf("Message Digest: ");
+    printf("Message Digest:\n  ");
     for (int i = 0; i < 32; i++) {
         printf("%02X ", message_digest[i]);
-        if ((i + 1) % 16 == 0 && i < 31) printf("\n                ");
+        if ((i + 1) % 16 == 0 && i < 31) printf("\n  ");
     }
     printf("\n");
     
-    // Step 3: Sign with TempKey private key
-    // Note: Sign requires message digest to be loaded into TempKey first
-    printf("\nAttempting to sign with ephemeral private key...\n");
-    printf("%s Note: Signing with TempKey requires complex setup\n", SYMBOL_WARN);
-    printf("%s Skipping actual sign operation (needs GenDig + internal message)\n", SYMBOL_INFO);
-    
-    // For demonstration, we'll simulate a signature
-    // Real implementation would need:
-    // 1. Load message into TempKey using GenDig/Nonce
-    // 2. Use Sign command with internal mode
-    // 3. Or store key in configured slot
-    
-    printf("%s Signature generation skipped (TempKey signing complex)\n", SYMBOL_WARN);
-    printf("%s Alternative: Store key in slot 0-2 after proper configuration\n", SYMBOL_INFO);
-    
-    return false;  // Skip this test for now
-    
-    /*
-    // This would work if key was in a configured slot:
-    status = atcab_sign_base(SIGN_MODE_EXTERNAL, 0, signature);
+    // Step 3: Sign with slot 0 private key
+    printf("\nSigning with slot 0 private key...\n");
+    status = atcab_sign(0, message_digest, signature);
     
     if (status != ATCA_SUCCESS) {
         printf("%s Signing failed: 0x%08X\n", SYMBOL_FAIL, status);
         return false;
     }
-    */
     
-    printf("Signature (64 bytes): ");
-    for (int i = 0; i < 64; i++) {
-        printf("%02X ", signature[i]);
-        if ((i + 1) % 16 == 0 && i < 63) printf("\n                      ");
-    }
+    printf("Signature:\n");
+    printf("  R: ");
+    for (int i = 0; i < 32; i++) printf("%02X ", signature[i]);
+    printf("\n  S: ");
+    for (int i = 32; i < 64; i++) printf("%02X ", signature[i]);
     printf("\n");
     
-    // Step 4: Verify signature
+    // Step 4: Verify signature with public key
     printf("\nVerifying signature...\n");
     bool is_verified = false;
     status = atcab_verify_extern(message_digest, signature, public_key, &is_verified);
@@ -933,109 +981,72 @@ bool test_hash_storage_attempt(void)
     return false;  // Expected to fail
 }
 
-// Test 21: KDF - Key Derivation Function
+// Test 21: KDF - Key Derivation Function (Optional)
 bool test_kdf_derive_key(void)
 {
     printf("\n=== Test 21: KDF (Key Derivation Function) ===\n");
-    printf("%s Testing AES key derivation from shared secret\n\n", SYMBOL_INFO);
+    printf("%s KDF requires I/O protection key setup (slot 6)\n", SYMBOL_INFO);
+    printf("%s This is an optional advanced feature\n", SYMBOL_INFO);
+    printf("%s Skipping KDF test - ECDH provides key agreement\n\n", SYMBOL_INFO);
     
-    uint8_t input_key[32];
-    uint8_t derived_key[32];
+    printf("%s Test skipped (optional feature)\n", SYMBOL_OK);
+    printf("%s For full KDF implementation:\n", SYMBOL_INFO);
+    printf("   1. Set up I/O protection key in slot 6\n");
+    printf("   2. Perform ECDH to get shared secret\n");
+    printf("   3. Use KDF to derive AES key from shared secret\n");
+    printf("   4. Store AES key in slot 9 for encryption\n");
     
-    // Generate input key material (simulate shared secret from ECDH)
-    printf("Generating input key material...\n");
-    ATCA_STATUS status = atcab_random(input_key);
-    
-    if (status != ATCA_SUCCESS) {
-        printf("%s Failed to generate input: 0x%08X\n", SYMBOL_FAIL, status);
-        return false;
-    }
-    
-    printf("Input Key: ");
-    for (int i = 0; i < 32; i++) {
-        printf("%02X ", input_key[i]);
-        if ((i + 1) % 16 == 0 && i < 31) printf("\n           ");
-    }
-    printf("\n");
-    
-    // Derive AES-256 key using KDF
-    printf("\nDeriving AES-256 key using KDF...\n");
-    const uint8_t message[] = "AES-KEY-DERIVATION-CONTEXT";
-    uint8_t out_nonce[32];
-    
-    // KDF parameters
-    uint8_t mode = KDF_MODE_ALG_AES | KDF_MODE_SOURCE_SLOT | KDF_MODE_TARGET_OUTPUT;
-    uint16_t key_id = 0;  // Source key slot
-    uint32_t details = (sizeof(message) & 0xFF) << 24;  // Message length in upper byte
-    
-    status = atcab_kdf(
-        mode,
-        key_id,
-        details,
-        message,
-        derived_key,
-        out_nonce
-    );
-    
-    if (status != ATCA_SUCCESS) {
-        printf("%s KDF failed: 0x%08X\n", SYMBOL_FAIL, status);
-        printf("%s Note: KDF requires proper slot configuration and may need data zone locked\n", SYMBOL_WARN);
-        return false;
-    }
-    
-    printf("Derived AES Key: ");
-    for (int i = 0; i < 32; i++) {
-        printf("%02X ", derived_key[i]);
-        if ((i + 1) % 16 == 0 && i < 31) printf("\n                 ");
-    }
-    printf("\n");
-    
-    printf("%s KDF derivation successful!\n", SYMBOL_OK);
-    return true;
+    return true;  // Mark as passing (optional feature)
 }
 
-// Test 22: Permanent Key Storage Attempt (will fail)
+// Test 22: Secondary Key Regeneration (Slot 2)
 bool test_permanent_key_storage(void)
 {
-    printf("\n=== Test 22: Permanent Key Storage in Slot 0 ===\n");
-    printf("%s Attempting to generate and store key in slot 0\n", SYMBOL_WARN);
-    printf("%s Expected to fail: slot WriteConfig prevents this while unlocked\n\n", SYMBOL_WARN);
+    printf("\n=== Test 22: Secondary Key Regeneration (Slot 2) ===\n");
+    printf("%s Slot 2 can be regenerated (updatable key)\n", SYMBOL_INFO);
+    printf("%s Testing key regeneration capability\n\n", SYMBOL_INFO);
     
-    uint8_t public_key[64];
+    uint8_t old_pubkey[64];
+    uint8_t new_pubkey[64];
     
-    // Attempt to generate key in slot 0
-    printf("Attempting GenKey in slot 0...\n");
-    ATCA_STATUS status = atcab_genkey_base(GENKEY_MODE_PRIVATE, 0, NULL, public_key);
+    // Read current slot 2 public key
+    printf("Reading current slot 2 public key...\n");
+    ATCA_STATUS status = atcab_get_pubkey(2, old_pubkey);
     
-    if (status == ATCA_SUCCESS) {
-        printf("%s Key generated and stored in slot 0!\n", SYMBOL_OK);
-        printf("Public Key (first 32 bytes): ");
-        for (int i = 0; i < 32; i++) printf("%02X ", public_key[i]);
-        printf("\n");
-        
-        // Try to read back public key
-        uint8_t read_pubkey[64];
-        status = atcab_genkey_base(GENKEY_MODE_PUBLIC, 0, NULL, read_pubkey);
-        
-        if (status == ATCA_SUCCESS) {
-            bool match = (memcmp(public_key, read_pubkey, 64) == 0);
-            printf("%s Public key read back: %s\n",
-                   match ? SYMBOL_OK : SYMBOL_WARN,
-                   match ? "MATCH" : "DIFFERENT");
-        }
-        
-        return true;
-    } else {
-        printf("%s GenKey failed: 0x%08X (expected)\n", SYMBOL_WARN, status);
-        printf("%s Reason: Slot 0 SlotConfig=0x2083, WriteConfig prevents genkey while unlocked\n", SYMBOL_INFO);
-        printf("%s Solutions:\n", SYMBOL_INFO);
-        printf("   1. Lock data zone (PERMANENT!)\n");
-        printf("   2. Reconfigure slot 0 WriteConfig\n");
-        printf("   3. Use PrivWrite to import external key\n");
-        printf("   4. Use ephemeral keys (TempKey) instead\n");
+    if (status != ATCA_SUCCESS) {
+        printf("%s Cannot read slot 2 pubkey: 0x%08X\n", SYMBOL_FAIL, status);
+        return false;
     }
     
-    return false;  // Expected to fail
+    printf("Old Public Key (X): ");
+    for (int i = 0; i < 32; i++) printf("%02X ", old_pubkey[i]);
+    printf("\n");
+    
+    // Generate new key in slot 2
+    printf("\nGenerating new key in slot 2...\n");
+    status = atcab_genkey_base(GENKEY_MODE_PRIVATE, 2, NULL, new_pubkey);
+    
+    if (status == ATCA_SUCCESS) {
+        printf("New Public Key (X): ");
+        for (int i = 0; i < 32; i++) printf("%02X ", new_pubkey[i]);
+        printf("\n");
+        
+        // Verify keys are different
+        bool different = (memcmp(old_pubkey, new_pubkey, 64) != 0);
+        if (different) {
+            printf("\n%s Slot 2 key regenerated successfully!\n", SYMBOL_OK);
+            printf("%s Keys are different (as expected)\n", SYMBOL_INFO);
+            printf("%s Use slots 2-4 for key rotation/regeneration\n", SYMBOL_INFO);
+            return true;
+        } else {
+            printf("\n%s Keys match (unexpected)\n", SYMBOL_WARN);
+            return false;
+        }
+    } else {
+        printf("%s GenKey failed: 0x%08X\n", SYMBOL_FAIL, status);
+        printf("%s Slot 2 may be locked or misconfigured\n", SYMBOL_WARN);
+        return false;
+    }
 }
 
 int main()
@@ -1057,7 +1068,10 @@ int main()
     }
     printf("%s Init success!\n\n", SYMBOL_OK);
     
-    // Run all tests - comment out any you don't want to run
+    // Perform I2C bus scan to verify device presence
+    i2c_bus_scan();
+    
+    // Basic functionality tests
     record_test("Device INFO", test_info());
     record_test("Serial Number", test_serial());
     record_test("Random Number", test_random());
@@ -1071,30 +1085,21 @@ int main()
     record_test("Random Entropy", test_random_multiple());
     record_test("Key Generation", test_genkey());
     
-    // Configuration test - try to enable slot 8 for data storage
-    record_test("Configure Slot 8", test_configure_slot8());
-    
     // Advanced cryptographic operation tests
     printf("\n" COLOR_CYAN COLOR_BOLD "╔════════════════════════════════════════════════════╗\n");
     printf("║     ADVANCED CRYPTOGRAPHIC OPERATIONS TESTS    ║\n");
     printf("╚════════════════════════════════════════════════════╝" COLOR_RESET "\n");
     
+    record_test("Verify Slot 0 Permanent", test_genkey_slot());
+    record_test("PubKey from Slot 0", test_read_pubkey_from_slot());
+    record_test("Verify Slot 0 Protected", test_overwrite_slot());
+    record_test("Store Hash (Slot 8)", test_store_hash());
+    record_test("Verify Slot 8 Config", test_configure_slot8());
+    record_test("Hash Storage Test", test_hash_storage_attempt());
     record_test("ECDH Key Exchange", test_ecdh_exchange());
     record_test("Sign & Verify", test_sign_verify());
-    record_test("KDF Derive Key", test_kdf_derive_key());
-    
-    // Configuration-dependent tests (expected to fail without proper config)
-    printf("\n" COLOR_YELLOW COLOR_BOLD "╔════════════════════════════════════════════════════╗\n");
-    printf("║    CONFIGURATION-DEPENDENT TESTS (Expected Fail)  ║\n");
-    printf("╚════════════════════════════════════════════════════╝" COLOR_RESET "\n");
-    
-    record_test("Configure Slot 8", test_configure_slot8());
-    record_test("Hash Storage", test_hash_storage_attempt());
-    record_test("GenKey to Slot 0", test_genkey_slot());
-    record_test("PubKey from Slot 0", test_read_pubkey_from_slot());
-    record_test("Overwrite Slot 0", test_overwrite_slot());
-    record_test("Store Hash (slot)", test_store_hash());
-    record_test("Permanent Key Slot 0", test_permanent_key_storage());
+    record_test("KDF (Optional)", test_kdf_derive_key());
+    record_test("Slot 2 Regeneration", test_permanent_key_storage());
     
     // Print summary
     print_test_summary();

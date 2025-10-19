@@ -14,7 +14,7 @@
  * \brief The I2C address for the ATECC608A.
  * This is the default address. It can be changed in the device's configuration zone.
  */
-#define ATCA_I2C_ATECC608A_ADDR     (0x60)
+#define ATCA_I2C_ATECC608A_ADDR     (0x35)
 
 /**
  * \brief This is the HAL specific abstraction for the ATECC608A.

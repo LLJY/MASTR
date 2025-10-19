@@ -1,95 +1,151 @@
-# == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
-if(WIN32)
-    set(USERHOME $ENV{USERPROFILE})
-else()
-    set(USERHOME $ENV{HOME})
-endif()
-set(sdkVersion 2.2.0)
-set(toolchainVersion 14_2_Rel1)
-set(picotoolVersion 2.2.0-a4)
-set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
-if (EXISTS ${picoVscode})
-    include(${picoVscode})
-endif()
-# ====================================================================================
-set(PICO_BOARD pico CACHE STRING "Board type")
+# CMake build configuration for the Pico ATECC608A project.
+#
+# This version corrects the cryptoauthlib target name to 'cryptoauth',
+# which is the name defined by the library's own build scripts.
+#
 
 cmake_minimum_required(VERSION 3.13)
+set(PICO_BOARD pico CACHE STRING "Board type")
 
-option(BUILD_TESTS "Enable building the unit tests" OFF)
+# Pull in the Pico SDK (must be done before the project() call)
+include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 
-# Pull in SDK (must be before project)
-include(pico_sdk_import.cmake)
-include(pico_extras_import_optional.cmake)
-
-project(pico_project_template C CXX ASM)
-
+project(pico_atecc608_app C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
-if (PICO_SDK_VERSION_STRING VERSION_LESS "2.2.0")
-    message(FATAL_ERROR "Raspberry Pi Pico SDK version 2.2.0 (or later) required. Your version is ${PICO_SDK_VERSION_STRING}")
-endif()
-
-# If you want debug output from USB (pass -DPICO_STDIO_USB=1) this ensures you don't lose any debug output while USB is set up
-if (NOT DEFINED PICO_STDIO_USB_CONNECT_WAIT_TIMEOUT_MS)
-    set(PICO_STDIO_USB_CONNECT_WAIT_TIMEOUT_MS 3000)
-endif()
-
-# Allow using the example keys, as this is the examples repository
-if (NOT DEFINED PICO_ALLOW_EXAMPLE_KEYS)
-    set(PICO_ALLOW_EXAMPLE_KEYS 1)
-endif()
-
-# Initialize the SDK
+# Initialize the Pico SDK
 pico_sdk_init()
 
-include(example_auto_set_url.cmake)
 
-add_compile_options(-Wall
-        -Wno-format          # int != int32_t as far as the compiler is concerned because gcc has int32_t as long int
-        -Wno-unused-function # we have some for the docs that aren't called
-        )
-if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
-    add_compile_options(-Wno-maybe-uninitialized)
-endif()
+include(FetchContent)
 
-add_library(cryptoauthlib_target
-    ${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib/lib/atca_status.c
-    ${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib/lib/basic/atca_basic.c
-    # Add other necessary.c files from cryptoauthlib/lib/...
+# Set options for cryptoauthlib BEFORE it is fetched.
+set(UNIX FALSE) # Prevent cryptoauthlib from thinking we are on linux
+set(ATCA_HAL_I2C ON CACHE BOOL "Enable the I2C HAL infrastructure (which we will override)")
+set(ATCA_HAL_SPI OFF CACHE BOOL "Disable default SPI HAL")
+set(ATCA_HAL_SWI OFF CACHE BOOL "Disable default SWI HAL")
+set(ATCA_HAL_UART OFF CACHE BOOL "Disable default UART HAL")
+set(ATCA_HAL_KIT_HID OFF CACHE BOOL "Disable default Kit HID HAL")
+set(ATCA_HAL_KIT_CDC OFF CACHE BOOL "Disable default Kit CDC HAL")
+set(ATCA_HAL_CUSTOM OFF CACHE BOOL "Disable the 'custom' HAL mechanism")
+set(ATCA_TNGTLS_SUPPORT OFF CACHE BOOL "Disable TNGTLS support")
+set(ATCA_OPENSSL_SUPPORT OFF CACHE BOOL "Disable OpenSSL support")
+set(ATCA_BUILD_TESTS OFF CACHE BOOL "Disable building tests")
+
+FetchContent_Declare(
+    cryptoauthlib
+    GIT_REPOSITORY https://github.com/MicrochipTech/cryptoauthlib.git
+    GIT_TAG        v3.7.9
 )
-# Add the library's include directories
-target_include_directories(cryptoauthlib_target PUBLIC
-    ${CMAKE_CURRENT_LIST_DIR}
-    ${CMAKE_CURRENT_LIST_DIR}/cryptoauthlib/lib
+FetchContent_MakeAvailable(cryptoauthlib)
+
+# --- THE KEY FIX ---
+# Use the correct target name 'cryptoauth' as defined by the library.
+get_target_property(CRYPTOAUTHLIB_SOURCES cryptoauth SOURCES)
+
+# Filter the list, EXCLUDING the Linux-specific HAL files
+list(FILTER CRYPTOAUTHLIB_SOURCES EXCLUDE REGEX ".*hal_linux.c")
+list(FILTER CRYPTOAUTHLIB_SOURCES EXCLUDE REGEX ".*hal_linux_i2c_userspace.c")
+
+# Set the target's sources to our new, filtered list
+set_target_properties(cryptoauth PROPERTIES SOURCES "${CRYPTOAUTHLIB_SOURCES}")
+
+# CRITICAL: Add preprocessor defines to the cryptoauth library itself
+target_compile_definitions(cryptoauth PUBLIC
+    ATCA_HAL_I2C
+    ATCA_ATECC608A_SUPPORT
+    ATCA_CA_SUPPORT
 )
 
-# --- Custom HAL ---
-# Add our custom HAL implementation
-add_library(pico_hal
-    ${CMAKE_CURRENT_LIST_DIR}/hal/hal_pico_i2c.c
-)
-target_include_directories(pico_hal PUBLIC
-    ${CMAKE_CURRENT_LIST_DIR}/hal
-)
-
-add_executable(pico_project_template
+# Main simple test
+add_executable(${PROJECT_NAME}
     src/main.c
+    src/hal/hal_pico_i2c.c
 )
-# Link to pico_stdlib
-target_link_libraries(pico_project_template pico_stdlib hardware_i2c cryptoauthlib_target pico_hal)
 
-# Enable usb output, disable uart output
-pico_enable_stdio_usb(pico_project_template 1)
-pico_enable_stdio_uart(pico_project_template 0)
+# Link against the correct 'cryptoauth' target name
+target_link_libraries(${PROJECT_NAME}
+    pico_stdlib
+    hardware_i2c
+    cryptoauth
+)
+target_include_directories(${PROJECT_NAME} PUBLIC
+    ${CMAKE_CURRENT_LIST_DIR}/include
+    ${cryptoauthlib_SOURCE_DIR}/lib
+    ${cryptoauthlib_SOURCE_DIR}/lib/hal
+    ${cryptoauthlib_SOURCE_DIR}/lib/calib
+)
 
-# Create map/bin/hex file etc.
-pico_add_extra_outputs(pico_project_template)
+# Add compile definitions for CryptoAuthLib
+target_compile_definitions(${PROJECT_NAME} PUBLIC
+    ATCA_HAL_I2C
+    ATCA_ATECC608A_SUPPORT
+    ATCA_CA_SUPPORT
+    ATCA_NO_HEAP  # Use stack allocation instead of heap
+)
 
-# Add include directory
-target_include_directories(pico_project_template PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include)
+pico_add_extra_outputs(${PROJECT_NAME})
+pico_enable_stdio_usb(${PROJECT_NAME} 1)
+pico_enable_stdio_uart(${PROJECT_NAME} 0)
 
-if(BUILD_TESTS)
-    add_subdirectory(test)
-endif()
+# Read-only configuration analyzer (SAFE - no writes)
+add_executable(pico_atecc608_analyze
+    src/analyze_config.c
+    src/hal/hal_pico_i2c.c
+)
+
+target_link_libraries(pico_atecc608_analyze
+    pico_stdlib
+    hardware_i2c
+    cryptoauth
+)
+
+target_include_directories(pico_atecc608_analyze PUBLIC
+    ${CMAKE_CURRENT_LIST_DIR}/include
+    ${cryptoauthlib_SOURCE_DIR}/lib
+    ${cryptoauthlib_SOURCE_DIR}/lib/hal
+    ${cryptoauthlib_SOURCE_DIR}/lib/calib
+)
+
+target_compile_definitions(pico_atecc608_analyze PUBLIC
+    ATCA_HAL_I2C
+    ATCA_ATECC608A_SUPPORT
+    ATCA_CA_SUPPORT
+    ATCA_NO_HEAP
+)
+
+pico_add_extra_outputs(pico_atecc608_analyze)
+pico_enable_stdio_usb(pico_atecc608_analyze 1)
+pico_enable_stdio_uart(pico_atecc608_analyze 0)
+
+# MASTR Protocol Test - Tests ALL required functions
+add_executable(pico_atecc608_mastr_test
+    src/mastr_test.c
+    src/hal/hal_pico_i2c.c
+)
+
+target_link_libraries(pico_atecc608_mastr_test
+    pico_stdlib
+    hardware_i2c
+    cryptoauth
+)
+
+target_include_directories(pico_atecc608_mastr_test PUBLIC
+    ${CMAKE_CURRENT_LIST_DIR}/include
+    ${cryptoauthlib_SOURCE_DIR}/lib
+    ${cryptoauthlib_SOURCE_DIR}/lib/hal
+    ${cryptoauthlib_SOURCE_DIR}/lib/calib
+)
+
+target_compile_definitions(pico_atecc608_mastr_test PUBLIC
+    ATCA_HAL_I2C
+    ATCA_ATECC608A_SUPPORT
+    ATCA_CA_SUPPORT
+    ATCA_NO_HEAP
+)
+
+pico_add_extra_outputs(pico_atecc608_mastr_test)
+pico_enable_stdio_usb(pico_atecc608_mastr_test 1)
+pico_enable_stdio_uart(pico_atecc608_mastr_test 0)
+
