@@ -41,8 +41,30 @@ if (NOT DEFINED PICO_ALLOW_EXAMPLE_KEYS)
     set(PICO_ALLOW_EXAMPLE_KEYS 1)
 endif()
 
+# FreeRTOS configuration (must be before pico_sdk_init)
+add_library(freertos_config INTERFACE)
+target_include_directories(freertos_config INTERFACE ${CMAKE_CURRENT_LIST_DIR}/include)
+
+include(FetchContent)
+FetchContent_Populate(freertos_kernel
+    GIT_REPOSITORY     "https://github.com/FreeRTOS/FreeRTOS-Kernel.git"
+    GIT_TAG            "V11.2.0"
+)
+set(FREERTOS_KERNEL_PATH "${CMAKE_CURRENT_BINARY_DIR}/freertos_kernel-src" CACHE STRING "FreeRTOS Location" FORCE)
+
 # Initialize the SDK
 pico_sdk_init()
+
+# Add appropriate FreeRTOS port based on platform
+if(PICO_PLATFORM STREQUAL "rp2040")
+    add_subdirectory(${FREERTOS_KERNEL_PATH}/portable/ThirdParty/GCC/RP2040)
+elseif(PICO_PLATFORM STREQUAL "rp2350-arm-s")
+    add_subdirectory(${FREERTOS_KERNEL_PATH}/portable/ThirdParty/Community-Supported-Ports/GCC/RP2350_ARM_NTZ)
+elseif(PICO_PLATFORM STREQUAL "rp2350-riscv")
+    add_subdirectory(${FREERTOS_KERNEL_PATH}/portable/ThirdParty/Community-Supported-Ports/GCC/RP2350_RISC-V)
+else()
+    message(FATAL_ERROR "Unsupported PICO_PLATFORM: ${PICO_PLATFORM}")
+endif()
 
 # add cryptoauthlib
 include(FetchContent)
@@ -99,7 +121,9 @@ add_executable(pico_project_template
 target_link_libraries(pico_project_template
     pico_stdlib
     hardware_i2c
-    cryptoauth)
+    cryptoauth
+    FreeRTOS-Kernel-Heap4
+    freertos_config)
 
 # Enable usb output, disable uart output
 pico_enable_stdio_usb(pico_project_template 1)

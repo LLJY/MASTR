@@ -3,6 +3,8 @@
 #include "serial.h"
 #include "pico/stdlib.h"
 #include "pico/binary_info.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 // Add binary info
 bi_decl(bi_program_name("MASTR"));
@@ -31,6 +33,17 @@ void print_board_info() {
 #endif
 }
 
+// FreeRTOS task for processing serial data
+void serial_task(void *params) {
+    (void)params;  // Unused parameter
+    
+    while (true) {
+        process_serial_data();
+        // Small delay to yield to other tasks
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+}
+
 void mainloop(){
     while (true) {
         process_serial_data();
@@ -39,6 +52,30 @@ void mainloop(){
 
 int main() {
     stdio_init_all();
-    mainloop();
+    
+    print_board_info();
+    printf("FreeRTOS Integration Test\n");
+    
+    // Create the serial processing task
+    TaskHandle_t serial_task_handle;
+    xTaskCreate(
+        serial_task,           // Task function
+        "Serial",              // Task name
+        256,                   // Stack size (words, not bytes)
+        NULL,                  // Parameters
+        tskIDLE_PRIORITY + 1,  // Priority
+        &serial_task_handle    // Task handle
+    );
+    
+    // Start the FreeRTOS scheduler
+    printf("Starting FreeRTOS scheduler...\n");
+    vTaskStartScheduler();
+    
+    // Should never reach here
+    printf("ERROR: Scheduler failed to start!\n");
+    while (1) {
+        tight_loop_contents();
+    }
+    
     return 0;
 }
