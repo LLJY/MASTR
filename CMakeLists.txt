@@ -44,12 +44,48 @@ endif()
 # Initialize the SDK
 pico_sdk_init()
 
+# add cryptoauthlib
+include(FetchContent)
+
+# Set options for cryptoauthlib BEFORE it is fetched.
+set(UNIX FALSE) # Prevent cryptoauthlib from thinking we are on linux
+set(ATCA_HAL_I2C ON CACHE BOOL "Enable the I2C HAL infrastructure (which we will override)")
+set(ATCA_HAL_SPI OFF CACHE BOOL "Disable default SPI HAL")
+set(ATCA_HAL_SWI OFF CACHE BOOL "Disable default SWI HAL")
+set(ATCA_HAL_UART OFF CACHE BOOL "Disable default UART HAL")
+set(ATCA_HAL_KIT_HID OFF CACHE BOOL "Disable default Kit HID HAL")
+set(ATCA_HAL_KIT_CDC OFF CACHE BOOL "Disable default Kit CDC HAL")
+set(ATCA_HAL_CUSTOM OFF CACHE BOOL "Disable the 'custom' HAL mechanism")
+set(ATCA_TNGTLS_SUPPORT OFF CACHE BOOL "Disable TNGTLS support")
+set(ATCA_OPENSSL_SUPPORT OFF CACHE BOOL "Disable OpenSSL support")
+set(ATCA_BUILD_TESTS OFF CACHE BOOL "Disable building tests")
+
+FetchContent_Declare(
+    cryptoauthlib
+    GIT_REPOSITORY https://github.com/MicrochipTech/cryptoauthlib.git
+    GIT_TAG        v3.7.9
+)
+
+FetchContent_MakeAvailable(cryptoauthlib)
+
+get_target_property(CRYPTOAUTHLIB_SOURCES cryptoauth SOURCES)
+
+# Filter the list, EXCLUDING the Linux-specific HAL files
+list(FILTER CRYPTOAUTHLIB_SOURCES EXCLUDE REGEX ".*hal_linux.c")
+list(FILTER CRYPTOAUTHLIB_SOURCES EXCLUDE REGEX ".*hal_linux_i2c_userspace.c")
+
+# Set the target's sources to our new, filtered list
+set_target_properties(cryptoauth PROPERTIES SOURCES "${CRYPTOAUTHLIB_SOURCES}")
+
+
 include(example_auto_set_url.cmake)
 
 add_compile_options(-Wall
         -Wno-format          # int != int32_t as far as the compiler is concerned because gcc has int32_t as long int
         -Wno-unused-function # we have some for the docs that aren't called
+        -O3 #optimize for SPEED
         )
+
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
     add_compile_options(-Wno-maybe-uninitialized)
 endif()
@@ -60,7 +96,10 @@ add_executable(pico_project_template
     src/protocol.c
 )
 # Link to pico_stdlib
-target_link_libraries(pico_project_template pico_stdlib)
+target_link_libraries(pico_project_template
+    pico_stdlib
+    hardware_i2c
+    cryptoauth)
 
 # Enable usb output, disable uart output
 pico_enable_stdio_usb(pico_project_template 1)
@@ -70,7 +109,13 @@ pico_enable_stdio_uart(pico_project_template 0)
 pico_add_extra_outputs(pico_project_template)
 
 # Add include directory
-target_include_directories(pico_project_template PUBLIC ${CMAKE_CURRENT_LIST_DIR}/include)
+target_include_directories(pico_project_template 
+    PUBLIC 
+    ${CMAKE_CURRENT_LIST_DIR}/include
+    ${cryptoauthlib_SOURCE_DIR}/lib
+    ${cryptoauthlib_SOURCE_DIR}/lib/hal
+    ${cryptoauthlib_SOURCE_DIR}/lib/calib
+)
 
 if(BUILD_TESTS)
     add_subdirectory(test)
