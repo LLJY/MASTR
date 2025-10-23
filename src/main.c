@@ -1,4 +1,4 @@
-#include <stdio.h>    // Must be BEFORE serial.h so printf exists
+#include <stdio.h>
 #include <string.h>
 #include "pico/stdlib.h"
 #include "pico/binary_info.h"
@@ -6,7 +6,8 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "cryptoauthlib.h"
-#include "serial.h"  // Must be AFTER stdio.h to override printf macro
+#include "serial.h"
+#include "constants.h"
 
 // Add binary info
 bi_decl(bi_program_name("MASTR"));
@@ -71,14 +72,23 @@ int main() {
     }
     
     // Create the serial processing task
+    // Priority hierarchy relative to (configMAX_PRIORITIES = 32):
+    //   31 (MAX-1): Timer task (FreeRTOS system)
+    //   ~20-25:     Critical protocol/crypto tasks
+    //   ~10-15:     Web server
+    //   ~5:         Background tasks
+    //   0:          Idle task
+    //
+    // Note: Serial is interrupt-driven, so it wakes immediately when data arrives.
+    // High priority ensures protocol processing isn't blocked by web server.
     TaskHandle_t serial_task_handle;
     xTaskCreate(
-        serial_task,           // Task function
-        "Serial",              // Task name
-        256,                   // Stack size (words, not bytes)
-        NULL,                  // Parameters
-        tskIDLE_PRIORITY + 1,  // Priority
-        &serial_task_handle    // Task handle
+        serial_task,                        
+        "Serial",                           // Task name
+        DEFAULT_STACK_SIZE,                 // Stack size (words, not bytes)
+        NULL,                               // Parameters
+        configMAX_PRIORITIES - 6,           // Priority
+        &serial_task_handle                 // Task handle
     );
     
     // Initialize serial subsystem with task handle for notifications

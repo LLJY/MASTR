@@ -19,6 +19,7 @@
     #include "mock_pico_sdk.h" // Use our mock declarations for the test build
 #else
     #include "pico/stdlib.h"   // Use the real SDK for the hardware build
+    #include "hardware/irq.h"  // For irq_set_priority
     #include "tusb.h"
     #include "FreeRTOS.h"
     #include "semphr.h"
@@ -62,8 +63,16 @@ void serial_init(TaskHandle_t task_handle) {
     serial_task_handle = task_handle;
     
     if (serial_task_handle == NULL) {
-        print_dbg("WARNING: serial_init called with NULL task handle");
+        print_dbg("WARNING: serial_init called with NULL task handle\n");
+        return;
     }
+    
+    // set proper irq priority for FreeRTOS (i like to be specific, since we have to set it for RP2350)
+    // Must be >= configMAX_SYSCALL_INTERRUPT_PRIORITY to call vTaskNotifyGiveFromISR
+    //   RP2040: 0x40 + 0x20 = 0x60 (safe, middle priority)
+    //   RP2350: 0x50 + 0x20 = 0x70 (safe, middle priority)
+    // Lower number = higher priority, so we ADD to make it LOWER priority
+    irq_set_priority(USBCTRL_IRQ, configMAX_SYSCALL_INTERRUPT_PRIORITY + 0x20);
 }
 #else
 void serial_init(TaskHandle_t task_handle) {

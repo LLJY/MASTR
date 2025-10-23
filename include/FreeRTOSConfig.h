@@ -104,11 +104,32 @@
 */
 
 #if FREE_RTOS_KERNEL_SMP // set by the RP2040 SMP port of FreeRTOS
-/* SMP port only */
-#define configNUMBER_OF_CORES                   2
-#define configTICK_CORE                         0
-#define configRUN_MULTIPLE_PRIORITIES           1
-#define configUSE_CORE_AFFINITY                 1
+    /* SMP port only */
+    #define configNUMBER_OF_CORES                   2
+    #define configTICK_CORE                         0
+    #define configRUN_MULTIPLE_PRIORITIES           1
+    #define configUSE_CORE_AFFINITY                 1
+#endif
+
+
+
+/* RP2350 (Pico 2) specific */
+#if defined(PICO_RP2350) || defined(PICO_BOARD_PICO2) || defined(PICO_BOARD_PICO2_W)
+    // im using sane values from raspberry pi foundation
+    // this governs the maximal priority for kernel syscalls in FreeRTOS
+    #define configMAX_SYSCALL_INTERRUPT_PRIORITY    16
+
+    #define configENABLE_MPU                        0
+    #define configENABLE_TRUSTZONE                  0
+    #define configENABLE_FPU                        1
+    #define configRUN_FREERTOS_SECURE_ONLY          1
+#else
+    // RP2040 feature flags
+    #define configMAX_SYSCALL_INTERRUPT_PRIORITY    0x40
+
+    #define configENABLE_MPU                        0
+    #define configENABLE_TRUSTZONE                  0
+    #define configENABLE_FPU                        0
 #endif
 
 /* RP2040 specific */
