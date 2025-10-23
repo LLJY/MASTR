@@ -1,7 +1,7 @@
 #include <stdint.h>
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
-#define DEBUG
+
 // tell the compiler to ALWAYS pack the struct
 // so the memory layout is contiguous
 #pragma pack(push, 1)
@@ -16,6 +16,20 @@
  * T2H = Token to Host
  */
 typedef enum {
+    // --------------------------------------------------------------------
+    // Class 0: System Control Messages
+    // --------------------------------------------------------------------
+
+    /**
+     * @brief T2H: Generic error message from Token
+     */
+    T2H_ERROR = 0x00,
+
+    /**
+     * @brief T2H: Negative acknowledgement - request rejected/failed
+     */
+    T2H_NACK = 0x01,
+
     // --------------------------------------------------------------------
     // Phase 1: Mutual Attestation & Secure Channel Establishment
     // --------------------------------------------------------------------
@@ -77,6 +91,17 @@ typedef enum {
      */
     T2H_INTEGRITY_FAIL_HALT = 0x33,
 
+    /**
+     * @brief H2T: Host acknowledges successful boot authorization
+     * @payload (Empty)
+     */
+    H2T_BOOT_OK_ACK = 0x34,
+
+    H2T_INTEGRITY_FAIL_HALT = 0x35,
+
+    // mutual ACK for integrity fail.
+    INTEGRITY_FAIL_ACK = 0X36,
+
 
     // --------------------------------------------------------------------
     // Runtime Heartbeat
@@ -94,11 +119,29 @@ typedef enum {
      */
     T2H_HEARTBEAT_ACK = 0x41,
 
+
+    // --------------------------------------------------------------------
+    // Testing & Debug Commands (counting down from 0xFE)
+    // --------------------------------------------------------------------
+
     #ifdef DEBUG
     /**
-     * @brief a debug byte message, just print to the user.
+     * @brief Debug message - print to user console
+     * @payload UTF-8 string
      */
     DEBUG_MSG = 0xFE,
+
+    /**
+     * @brief H2T: Request a random number from the ATECC608 (for testing)
+     * @payload (Empty)
+     */
+    H2T_TEST_RANDOM_REQUEST = 0xFD,
+
+    /**
+     * @brief T2H: Response containing a random number from ATECC608
+     * @payload 32 bytes of random data
+     */
+    T2H_TEST_RANDOM_RESPONSE = 0xFC,
     #endif
 
 } message_type_t;

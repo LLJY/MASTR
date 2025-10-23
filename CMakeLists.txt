@@ -108,6 +108,9 @@ add_compile_options(-Wall
         -O3 #optimize for SPEED
         )
 
+# Enable DEBUG mode for all builds
+add_compile_definitions(DEBUG)
+
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
     add_compile_options(-Wno-maybe-uninitialized)
 endif()
@@ -116,6 +119,7 @@ add_executable(pico_project_template
     src/main.c
     src/serial.c
     src/protocol.c
+    src/hal/hal_pico_i2c.c
 )
 # Link to pico_stdlib
 target_link_libraries(pico_project_template
