@@ -27,8 +27,8 @@ class MessageType(IntEnum):
     # Phase 1: Mutual Attestation & Secure Channel Establishment
     H2T_ECDH_SHARE = 0x20
     T2H_ECDH_SHARE = 0x21
-    H2T_CHANNEL_VERIFY_REQUEST = 0x22
-    T2H_CHANNEL_VERIFY_RESPONSE = 0x23
+    T2H_CHANNEL_VERIFY_REQUEST = 0x22  # Token sends encrypted challenge to Host
+    H2T_CHANNEL_VERIFY_RESPONSE = 0x23  # Host sends encrypted response to Token
     
     # Phase 2: (ENCRYPTED OR SIGNED REQUESTS) - Integrity Verification & Runtime Guard
     T2H_INTEGRITY_CHALLENGE = 0x30
@@ -48,6 +48,8 @@ class MessageType(IntEnum):
     DEBUG_MSG = 0xFE
     H2T_TEST_RANDOM_REQUEST = 0xFD
     T2H_TEST_RANDOM_RESPONSE = 0xFC
+    H2T_DEBUG_SET_HOST_PUBKEY = 0xFB
+    T2H_DEBUG_GET_TOKEN_PUBKEY = 0xFA
 
 
 class Frame(NamedTuple):
