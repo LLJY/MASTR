@@ -8,6 +8,7 @@
 #include "constants.h"
 #include "serial.h"
 #include "protocol.h"
+#include "crypt.h"
 
 // pico library headers
 // DO NOT INCLUDE THESE DURING UNIT TESTING.
@@ -190,38 +191,32 @@ static void process_complete_frame() {
         return; // Invalid frame
     }
 
-    // get the message type and payload length from the buffer
+    // Decrypt frame if protocol state requires it
+    // The decrypt_frame_if_needed function checks the protocol state and
+    // either decrypts the payload or passes it through unchanged
+    uint8_t decrypted_payload[MAX_PAYLOAD_SIZE];
+    uint16_t decrypted_len = 0;
+    
+    if (!decrypt_frame_if_needed(frame_buffer, frame_len, decrypted_payload, &decrypted_len)) {
+        print_dbg("CRYPTO ERROR: Failed to process frame encryption\n");
+        send_shutdown_signal();
+        return;
+    }
+    
+    // Extract message type and validate frame structure
     message_type_t received_msg_type = frame_buffer[0];
-
-    // 
-    // 
-    /* we have to do some byte manipulation magic to squeeze two 8 bits into one 16 bit
-     * more magic when sending !!
-     *
-     * Note: the protocol sends bytes in big endian ordering.
-     * 
-     * What actually is happening here is the 8 bit is being casted into a 16 bit
-     * e.g. 10101010 -> 0000000010101010
-     * 
-     * we bit shift it left 8 bits -> 1010101000000000
-     * Then add the LSB bits, which are contained in the next half
-     * we can do this using the bitwise OR function (ORR in ARM instructions).
-     * 
-     * (boolean algebra notation)
-     * 1010101000000000 | 01010101 = 1010101001010101
-     * 
-     * <this part wasn't chatgpt'ed i spent good time doing this.>
-     */
-    uint16_t received_payload_len = ((uint16_t)frame_buffer[1] << 8) | frame_buffer[2];
+    
+    // Get the original encrypted length from the frame for checksum validation
+    uint16_t frame_payload_len = ((uint16_t)frame_buffer[1] << 8) | frame_buffer[2];
 
     // get the checksum, which is the last bit.
     uint8_t received_checksum = frame_buffer[frame_len - 1];
     
     // verify packet length consistency
     // The actual payload length is the total frame length minus the header and checksum bytes
-    if (received_payload_len != (frame_len - 4)) {
+    if (frame_payload_len != (frame_len - 4)) {
         print_dbg("FRAME ERROR: Length mismatch. Header says %d, actual is %d", 
-                  received_payload_len, frame_len - 4);
+                  frame_payload_len, frame_len - 4);
         send_shutdown_signal(); // Protocol error
         return;
     }
@@ -242,9 +237,10 @@ static void process_complete_frame() {
     }
 
     // DEBUG: Frame validated successfully
-    print_dbg("Frame validated: type=0x%02X, payload_len=%d\n", received_msg_type, received_payload_len);
+    print_dbg("Frame validated: type=0x%02X, payload_len=%d\n", received_msg_type, decrypted_len);
     
-    handle_validated_message(received_msg_type, &frame_buffer[3], received_payload_len);
+    // Pass the DECRYPTED payload to the handler
+    handle_validated_message(received_msg_type, decrypted_payload, decrypted_len);
 }
 
 static void send_stuffed_byte(uint8_t c) {
@@ -270,9 +266,22 @@ static void send_stuffed_byte(uint8_t c) {
 // REVISED send_message function
 void send_message(uint8_t msg_type, uint8_t *payload, uint16_t len)
 {
+    // Encrypt the payload if protocol state requires it
+    uint8_t encrypted_payload[MAX_PAYLOAD_SIZE + ENCRYPTION_OVERHEAD];
+    uint16_t encrypted_len = 0;
+    
+    if (!encrypt_frame_if_needed(msg_type, payload, len, encrypted_payload, &encrypted_len)) {
+        print_dbg("CRYPTO ERROR: Failed to encrypt outgoing frame\n");
+        return;
+    }
+    
+    // Now send the encrypted payload (or passthrough if not encrypted)
+    uint8_t* payload_to_send = encrypted_payload;
+    uint16_t len_to_send = encrypted_len;
+
     // The required buffer space is harder to predict due to stuffing.
     // A safe estimate is double the packet size, plus frame bytes.
-    uint32_t required_space = (5 + len) * 2;
+    uint32_t required_space = (5 + len_to_send) * 2;
     if (tud_cdc_write_available() < required_space)
     {
         tud_cdc_write_flush();
@@ -290,7 +299,7 @@ void send_message(uint8_t msg_type, uint8_t *payload, uint16_t len)
     // 3. Send Length (stuffed)
 
     /**
-     * Explaning the byte sending magic.
+     * Explaining the byte sending magic.
      * 
      * In order to split a 16bit number into two bytes over serial 2*8 bit you have to do some magic to split
      * then combine them later.
@@ -308,22 +317,19 @@ void send_message(uint8_t msg_type, uint8_t *payload, uint16_t len)
      * EXTRACTING THE LOWER 8 BITS:
      * this is much simpler, no need to bitshift. Just do & 0xFF and cast.
      * 
-     * Since & 0xFF will already extract the lower 8 bits. you get:
-     * 1010101001010101 & 11111111 = 01010101
-     * 
      */
-    uint8_t len_high = (len >> 8) & 0xFF;
-    uint8_t len_low = len & 0xFF;
+    uint8_t len_high = (len_to_send >> 8) & 0xFF;
+    uint8_t len_low = len_to_send & 0xFF;
     send_stuffed_byte(len_high);
     send_stuffed_byte(len_low);
     checksum += len_high;
     checksum += len_low;
 
-    // 4. Send the Payload (stuffed)
-    for (uint16_t i = 0; i < len; i++)
+    // 4. Send the Payload (stuffed) - now using encrypted payload
+    for (uint16_t i = 0; i < len_to_send; i++)
     {
-        send_stuffed_byte(payload[i]);
-        checksum += payload[i];
+        send_stuffed_byte(payload_to_send[i]);
+        checksum += payload_to_send[i];
     }
 
     // 5. Send the final Checksum (stuffed)

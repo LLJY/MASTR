@@ -8,6 +8,8 @@
 #include "cryptoauthlib.h"
 #include "serial.h"
 #include "constants.h"
+#include "protocol.h"
+#include "crypt.h"
 
 // Add binary info
 bi_decl(bi_program_name("MASTR"));
@@ -71,6 +73,22 @@ int main() {
         print_dbg("WARNING: ATECC608 init failed, status: 0x%02X\n", status);
     }
     
+    // Initialize cryptographic subsystem
+    if (!crypt_init()) {
+        print_dbg("WARNING: Crypto subsystem init failed\n");
+    } else {
+        print_dbg("Crypto subsystem initialized\n");
+    }
+    
+    print_dbg("About to enable forced encryption...\n");
+    
+    // TEMPORARY: Enable forced encryption for POC testing
+    // Copy POC key into protocol_state so we don't need conditional logic
+    memcpy(protocol_state.aes_session_key, get_poc_aes_key(), AES_KEY_SIZE);
+    set_force_encryption(true);
+    
+    print_dbg("POC Mode: Forced encryption enabled with hardcoded key\n");
+    
     // Create the serial processing task
     // Priority hierarchy relative to (configMAX_PRIORITIES = 32):
     //   31 (MAX-1): Timer task (FreeRTOS system)
@@ -93,6 +111,9 @@ int main() {
     
     // Initialize serial subsystem with task handle for notifications
     serial_init(serial_task_handle);
+
+    // replace with protocol init function
+    protocol_state.protocol_begin_timestamp = time_us_64();
     
     // Start the FreeRTOS scheduler
     print_dbg("Starting FreeRTOS scheduler...\n");

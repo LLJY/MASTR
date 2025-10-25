@@ -21,7 +21,8 @@ class SerialHandler:
         baudrate: int = 115200,
         on_frame: Optional[Callable[[Frame], None]] = None,
         on_error: Optional[Callable[[Exception], None]] = None,
-        on_raw_data: Optional[Callable[[bytes], None]] = None
+        on_raw_data: Optional[Callable[[bytes], None]] = None,
+        crypto_handler: Optional[object] = None
     ):
         """
         Initialize the serial handler.
@@ -32,12 +33,14 @@ class SerialHandler:
             on_frame: Callback called when a frame is received
             on_error: Callback called when an error occurs
             on_raw_data: Callback called with raw received bytes (for debugging)
+            crypto_handler: Optional CryptoHandler for encryption/decryption
         """
         self.port = port
         self.baudrate = baudrate
         self.on_frame = on_frame
         self.on_error = on_error
         self.on_raw_data = on_raw_data
+        self.crypto = crypto_handler
         
         self._serial: Optional[serial.Serial] = None
         self._parser = FrameParser(on_frame=self._handle_frame)
@@ -146,10 +149,11 @@ class SerialHandler:
     def send_frame(self, msg_type: int, payload: bytes = b'') -> bool:
         """
         Send a frame to the token with proper byte stuffing.
+        Encrypts payload if crypto handler is configured.
         
         Args:
             msg_type: Message type byte
-            payload: Payload bytes
+            payload: Payload bytes (will be encrypted if crypto is enabled)
             
         Returns:
             True if sent successfully
@@ -160,6 +164,16 @@ class SerialHandler:
         from .protocol import SOF_BYTE, EOF_BYTE, ESC_BYTE, ESC_SUB_SOF, ESC_SUB_EOF, ESC_SUB_ESC
         
         try:
+            # Encrypt payload if crypto handler is available
+            if self.crypto:
+                encrypted_payload = self.crypto.encrypt_payload(payload)
+                if encrypted_payload is None:
+                    # Encryption failed, but continue with unencrypted
+                    # (allows graceful degradation during testing)
+                    pass
+                else:
+                    payload = encrypted_payload
+            
             # Build frame: Type(1) + Length(2) + Payload(N) + Checksum(1)
             payload_len = len(payload)
             frame_data = bytearray()

@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stdbool.h>
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
@@ -145,8 +146,33 @@ typedef enum {
     #endif
 
 } message_type_t;
-
 #pragma pack(pop)
 
+typedef struct{
+    uint64_t protocol_begin_timestamp;
+
+    // @brief except for phase 2, only store the high nibble (msg_type >> 4) of the state.
+    // 0xFF will represent a NACK shutdown state, which means we will freeze the MCU in a permenant while(true)
+    // and plumb the software to never respond to anything ever again, this is out SHUTDOWN state (0XFF)
+    uint8_t current_state;
+    uint64_t current_state_begin_timestamp;
+    uint8_t et_pubkey[64];
+    uint8_t received_host_eph_pubkey[64];
+    uint8_t aes_session_key[16];
+
+    // missed hb will increment if the expected hearbeat time is exceeded.
+    uint8_t missed_hb_count;
+    uint32_t hb_nonce;
+    uint64_t last_hb_timstamp;
+
+} protocol_state_t;
+
+// Global protocol state (defined in protocol.c)
+extern protocol_state_t protocol_state;
+
+// forward declarations
+void provision_protocol();
+void unprovision_protocol();
+bool protocol_check_provisioned();
 void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_t len);
 #endif

@@ -5,10 +5,50 @@
 #include "cryptoauthlib.h"
 #endif
 
+// Global protocol state
+protocol_state_t protocol_state = {0};
+
+// store golden hash and public key
+void provision_protocol(){
+    // do with placeholder data. generate this data using openssl, and sha256 and hardcode it in protocol.h for now...
+    // future implementations will set this using the web server.
+}
+
+// delete golden hash and public key
+void unprovision_protocol(){
+    // clear slot 8 on the atecc
+}
+
+// check if the protocol is provisioned, if not perform some function...
+bool protocol_check_provisioned(){
+    // check if there is data in slot 8 (golden hash)
+    // check if there is data in slot 8 (perma pubkey of host)
+
+    // since slot 8 is the only general data slot with 416 bytes of storage
+
+    // why not store both together, in the same slot?
+
+    // layout of atecc slot 8:
+    // <H_Pubkey>|<golden_hash>
+
+    // receive both, verify, then store into protocol_state_t
+    
+    // TODO: Implement actual provisioning check
+    return false; // Not provisioned yet
+}
+
+// to be run in main
+// pull all the data from the ATECC to fill the protocol_state_t protocol_state struct.
+void set_protocol_initial_state(){
+    protocol_state.protocol_begin_timestamp = time_us_64();
+}
+
 void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_t len)
 {
+    #ifdef DEBUG
     // DEBUG: Log all received messages
     print_dbg("Received message type: 0x%02X, length: %d\n", msg_type, len);
+    #endif
     
     switch (msg_type)
     {

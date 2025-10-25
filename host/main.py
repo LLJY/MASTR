@@ -8,6 +8,7 @@ from typing import Optional
 from .serial_handler import SerialHandler
 from .protocol import Frame, MessageType, get_message_name
 from .parser import FrameParserError, ChecksumError, ProtocolError
+from .crypto import CryptoHandler, POC_AES_KEY
 
 
 # ANSI Color Codes
@@ -25,7 +26,8 @@ class HostReceiver:
     Main application class for receiving and displaying messages from the token.
     """
     
-    def __init__(self, port: str, baudrate: int = 115200, verbose: bool = False, debug_bytes: bool = False):
+    def __init__(self, port: str, baudrate: int = 115200, verbose: bool = False, 
+                 debug_bytes: bool = False, enable_crypto: bool = False):
         """
         Initialize the host receiver.
         
@@ -34,6 +36,7 @@ class HostReceiver:
             baudrate: Serial baud rate
             verbose: Enable verbose output
             debug_bytes: Enable raw byte debugging
+            enable_crypto: Enable encryption/decryption (POC mode with hardcoded key)
         """
         self.port = port
         self.baudrate = baudrate
@@ -43,12 +46,20 @@ class HostReceiver:
         self.error_count = 0
         self.byte_count = 0
         
+        # Initialize crypto handler if enabled
+        self.crypto = None
+        if enable_crypto:
+            self.crypto = CryptoHandler(force_encryption=True, poc_key=POC_AES_KEY)
+            print(f"{Colors.YELLOW}[CRYPTO]{Colors.RESET} POC Mode: Using hardcoded AES key")
+            print(f"  Key: {POC_AES_KEY.hex()}")
+        
         self.handler = SerialHandler(
             port=port,
             baudrate=baudrate,
             on_frame=self.on_frame_received,
             on_error=self.on_error,
-            on_raw_data=self.on_raw_data if debug_bytes else None
+            on_raw_data=self.on_raw_data if debug_bytes else None,
+            crypto_handler=self.crypto
         )
     
     def on_frame_received(self, frame: Frame):
@@ -60,24 +71,50 @@ class HostReceiver:
         """
         self.frame_count += 1
         
+        # Try to decrypt the payload if crypto is enabled
+        decrypted_payload = frame.payload
+        was_encrypted = False
+        
+        if self.crypto:
+            try:
+                if len(frame.payload) > 0:
+                    decrypted = self.crypto.decrypt_payload(frame.payload)
+                    if decrypted != frame.payload:
+                        was_encrypted = True
+                        decrypted_payload = decrypted
+                        if self.verbose:
+                            print(f"{Colors.YELLOW}[CRYPTO]{Colors.RESET} Decrypted: {len(frame.payload)} -> {len(decrypted)} bytes")
+            except Exception as e:
+                print(f"{Colors.RED}[CRYPTO ERROR]{Colors.RESET} Decryption failed: {e}")
+                print(f"  Raw payload ({len(frame.payload)} bytes): {frame.payload.hex()}")
+                # Continue processing with encrypted payload to show debug messages
+        
+        # Update frame with decrypted payload for debug message handling
+        decrypted_frame = Frame(
+            msg_type=frame.msg_type,
+            payload=decrypted_payload
+        )
+        
         # ===== DEBUG MESSAGE =====
-        if frame.is_debug:
+        if decrypted_frame.is_debug:
             # Debug messages are automatically colored
-            print(f"{Colors.ORANGE}[DEBUG FROM PICO]{Colors.RESET} {frame.debug_text}", end='')
+            encrypted_marker = f"{Colors.YELLOW}[ENCRYPTED]{Colors.RESET} " if was_encrypted else ""
+            print(f"{encrypted_marker}{Colors.ORANGE}[DEBUG FROM PICO]{Colors.RESET} {decrypted_frame.debug_text}", end='')
             return
         
         # ===== REGULAR MESSAGE =====
         msg_name = get_message_name(frame.msg_type)
-        print(f"\n[Frame #{self.frame_count}]")
+        encrypted_marker = f"{Colors.YELLOW}[ENCRYPTED]{Colors.RESET} " if was_encrypted else ""
+        print(f"\n{encrypted_marker}[Frame #{self.frame_count}]")
         print(f"  Type: {msg_name} (0x{frame.msg_type:02X})")
-        print(f"  Payload Length: {len(frame.payload)} bytes")
+        print(f"  Payload Length: {len(decrypted_payload)} bytes")
         
         # ===== MESSAGE TYPE SPECIFIC HANDLING =====
-        self._handle_message_type(frame)
+        self._handle_message_type(decrypted_frame)
         
         # ===== PAYLOAD DISPLAY =====
-        if len(frame.payload) > 0:
-            self._display_payload(frame.payload)
+        if len(decrypted_payload) > 0:
+            self._display_payload(decrypted_payload)
         
         # ===== VERBOSE INFO =====
         if self.verbose:
@@ -300,6 +337,11 @@ def main():
         action='store_true',
         help='Enable raw byte debugging (shows all received bytes)'
     )
+    parser.add_argument(
+        '-e', '--enable-crypto',
+        action='store_true',
+        help='Enable encryption/decryption (POC mode with hardcoded key)'
+    )
     
     args = parser.parse_args()
     
@@ -308,7 +350,8 @@ def main():
         port=args.port,
         baudrate=args.baudrate,
         verbose=args.verbose,
-        debug_bytes=args.debug_bytes
+        debug_bytes=args.debug_bytes,
+        enable_crypto=args.enable_crypto
     )
     
     return receiver.run()
