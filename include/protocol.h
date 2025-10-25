@@ -36,26 +36,26 @@ typedef enum {
 
     /**
      * @brief H2T: Host sends its ephemeral public key and a signature over it.
-     * @payload A 64-byte uncompressed P256 public key (EH_Pubkey), followed by its signature.
+     * \n payload: A 64-byte uncompressed P256 public key (EH_Pubkey), followed by its signature.
      */
     H2T_ECDH_SHARE = 0x20,
 
     /**
      * @brief T2H: Token, after verifying the Host's share, sends its own
      *        ephemeral public key and a signature over it.
-     * @payload A 64-byte uncompressed P256 public key (ET_Pubkey), followed by its signature.
+     * \n payload: A 64-byte uncompressed P256 public key (ET_Pubkey), followed by its signature.
      */
     T2H_ECDH_SHARE = 0x21,
 
     /**
      * @brief H2T: Host sends an encrypted ping to verify the newly derived SessionKey.
-     * @payload An encrypted block of known data (e.g., a 16-byte ping).
+     * \n payload: An encrypted block of known data (e.g., a 16-byte ping).
      */
     H2T_CHANNEL_VERIFY_REQUEST = 0x22,
 
     /**
      * @brief T2H: Token decrypts the ping, verifies it, and returns an encrypted pong.
-     * @payload An encrypted block of known data (e.g., a 16-byte pong).
+     * \n payload: An encrypted block of known data (e.g., a 16-byte pong).
      */
     T2H_CHANNEL_VERIFY_RESPONSE = 0x23,
 
@@ -66,34 +66,34 @@ typedef enum {
 
     /**
      * @brief T2H: The Token challenges the Host to prove its software integrity.
-     * @payload A random nonce.
+     * \n payload: A random nonce.
      */
     T2H_INTEGRITY_CHALLENGE = 0x30,
 
     /**
      * @brief H2T: The Host's response, containing the measured hash and a signature
      *        over the hash and the received nonce.
-     * @payload A 32-byte hash followed by the signature.
+     * \n payload: A 32-byte hash followed by the signature.
      */
     H2T_INTEGRITY_RESPONSE = 0x31,
     
     /**
      * @brief T2H: The Token signals to the Host that the integrity check passed
      *        and it is authorized to continue booting.
-     * @payload (Empty)
+     * \n payload: (Empty)
      */
     T2H_BOOT_OK = 0x32,
 
     /**
      * @brief T2H: The Token signals an integrity check failure and commands an
      *        immediate halt of the boot process.
-     * @payload (Empty)
+     * \n payload: (Empty)
      */
     T2H_INTEGRITY_FAIL_HALT = 0x33,
 
     /**
      * @brief H2T: Host acknowledges successful boot authorization
-     * @payload (Empty)
+     * \n payload: (Empty)
      */
     H2T_BOOT_OK_ACK = 0x34,
 
@@ -109,13 +109,13 @@ typedef enum {
 
     /**
      * @brief H2T: A simple periodic heartbeat message from the Host to the Token.
-     * @payload (Can be empty or contain a sequence number).
+     * \n payload: (Can be empty or contain a sequence number).
      */
     H2T_HEARTBEAT = 0x40,
 
     /**
      * @brief T2H: The Token's acknowledgement of a successful heartbeat.
-     * @payload (Empty)
+     * \n payload: (Empty)
      */
     T2H_HEARTBEAT_ACK = 0x41,
 
@@ -127,19 +127,19 @@ typedef enum {
     #ifdef DEBUG
     /**
      * @brief Debug message - print to user console
-     * @payload UTF-8 string
+     * \n payload: UTF-8 string
      */
     DEBUG_MSG = 0xFE,
 
     /**
      * @brief H2T: Request a random number from the ATECC608 (for testing)
-     * @payload (Empty)
+     * \n payload: (Empty)
      */
     H2T_TEST_RANDOM_REQUEST = 0xFD,
 
     /**
      * @brief T2H: Response containing a random number from ATECC608
-     * @payload 32 bytes of random data
+     * \n payload: 32 bytes of random data
      */
     T2H_TEST_RANDOM_RESPONSE = 0xFC,
     #endif
