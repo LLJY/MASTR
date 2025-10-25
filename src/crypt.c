@@ -5,74 +5,43 @@
 
 #ifndef UNIT_TEST
 #include "pico/stdlib.h"
-#include "pico/rand.h"  // For get_rand_32()
-
-// Use mbedTLS for AES-GCM on both RP2040 and RP2350
+#include "pico/rand.h"
+#include "pico/sha256.h"
 #include "mbedtls/gcm.h"
 #include "mbedtls/hkdf.h"
 #include "mbedtls/md.h"
-
-#endif // UNIT_TEST
-
-// ============================================================================
-// POC Hardcoded Key - TEMPORARY FOR TESTING
-// ============================================================================
-
-// This hardcoded key will be used for initial testing
-// Once ECDH is working, this will be removed
-static const uint8_t poc_aes_key[AES_KEY_SIZE] = {
-    0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6,
-    0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c
-};
-
-// TEMPORARY: Force encryption flag for testing
-static bool force_encryption_enabled = false;
-
-const uint8_t* get_poc_aes_key(void) {
-    return poc_aes_key;
-}
-
-void set_force_encryption(bool enable) {
-    force_encryption_enabled = enable;
-}
-
-// ============================================================================
-// Crypto Initialization
-// ============================================================================
+#include "cryptoauthlib.h"
+#endif
 
 bool crypt_init(void) {
 #ifndef UNIT_TEST
-    // NOTE: Cannot use print_dbg() here - would cause infinite recursion!
-    // mbedTLS doesn't require explicit initialization for basic usage
-    // The library is ready to use
     return true;
 #else
-    return true; // Mock for unit tests
+    return true;
 #endif
 }
 
-// ============================================================================
-// Random IV Generation
-// ============================================================================
-
+/**
+ * Generates initialization vector for AES-GCM using hardware RNG.
+ * Uses Pico's hardware random number generator for cryptographically secure IVs.
+ */
 static void generate_iv(uint8_t* iv_out) {
 #ifndef UNIT_TEST
-    // Use hardware RNG from Pico SDK
-    for (int i = 0; i < GCM_IV_SIZE; i += 4) {
-        uint32_t random = get_rand_32();
-        memcpy(iv_out + i, &random, (i + 4 <= GCM_IV_SIZE) ? 4 : (GCM_IV_SIZE - i));
+    // Use Pico hardware RNG for cryptographically secure random IV
+    for (int i = 0; i < GCM_IV_SIZE; i++) {
+        iv_out[i] = (uint8_t)get_rand_32();
     }
 #else
-    // Mock for unit tests
     memset(iv_out, 0xAA, GCM_IV_SIZE);
 #endif
 }
 
-// ============================================================================
-// AES-GCM Encryption/Decryption using mbedTLS
-// ============================================================================
-
-bool aes_gcm_encrypt(
+/**
+ * Encrypts plaintext using AES-128-GCM.
+ * Output format: [IV (12)][Ciphertext (N)][Tag (16)]
+ * 
+ * @return true if encryption succeeded, false otherwise
+ */bool aes_gcm_encrypt(
     const uint8_t* plaintext,
     uint16_t plaintext_len,
     const uint8_t* key,
@@ -95,18 +64,16 @@ bool aes_gcm_encrypt(
         return false;
     }
     
-    // Output format: [IV][Ciphertext][Tag]
     uint8_t tag[GCM_TAG_SIZE];
     
-    // Perform authenticated encryption
     ret = mbedtls_gcm_crypt_and_tag(
         &gcm,
         MBEDTLS_GCM_ENCRYPT,
         plaintext_len,
         iv, GCM_IV_SIZE,
-        NULL, 0,  // No additional authenticated data (AAD)
+        NULL, 0,
         plaintext,
-        ciphertext_out + GCM_IV_SIZE,  // Ciphertext goes after IV
+        ciphertext_out + GCM_IV_SIZE,
         GCM_TAG_SIZE,
         tag
     );
@@ -114,19 +81,13 @@ bool aes_gcm_encrypt(
     mbedtls_gcm_free(&gcm);
     
     if (ret != 0) {
-        // Cannot use print_dbg() - causes infinite recursion!
         return false;
     }
     
-    // Copy IV to beginning of output
     memcpy(ciphertext_out, iv, GCM_IV_SIZE);
-    
-    // Copy tag to end of output
     memcpy(ciphertext_out + GCM_IV_SIZE + plaintext_len, tag, GCM_TAG_SIZE);
     
     *ciphertext_len_out = GCM_IV_SIZE + plaintext_len + GCM_TAG_SIZE;
-    
-    // Cannot use print_dbg() here - would cause infinite recursion!
     
     return true;
 #else
@@ -136,6 +97,12 @@ bool aes_gcm_encrypt(
 #endif
 }
 
+/**
+ * Decrypts ciphertext using AES-128-GCM with authentication.
+ * Input format: [IV (12)][Ciphertext (N)][Tag (16)]
+ * 
+ * @return true if decryption and authentication succeeded, false otherwise
+ */
 bool aes_gcm_decrypt(
     const uint8_t* ciphertext,
     uint16_t ciphertext_len,
@@ -144,50 +111,44 @@ bool aes_gcm_decrypt(
     uint16_t* plaintext_len_out
 ) {
 #ifndef UNIT_TEST
-    // Verify minimum length
     if (ciphertext_len < ENCRYPTION_OVERHEAD) {
-        // Cannot use print_dbg() - causes infinite recursion!
         return false;
     }
     
     mbedtls_gcm_context gcm;
     mbedtls_gcm_init(&gcm);
     
-    // Extract IV, ciphertext, and tag
     const uint8_t* iv = ciphertext;
     const uint8_t* encrypted_data = ciphertext + GCM_IV_SIZE;
     uint16_t encrypted_len = ciphertext_len - GCM_IV_SIZE - GCM_TAG_SIZE;
     const uint8_t* tag = ciphertext + ciphertext_len - GCM_TAG_SIZE;
     
-    // Set up the GCM context with AES-128
+    uint8_t temp_plaintext[256];
+    
     int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key, AES_KEY_SIZE * 8);
     if (ret != 0) {
-        // Cannot use print_dbg() - causes infinite recursion!
         mbedtls_gcm_free(&gcm);
         return false;
     }
     
-    // Perform authenticated decryption
     ret = mbedtls_gcm_auth_decrypt(
         &gcm,
         encrypted_len,
         iv, GCM_IV_SIZE,
-        NULL, 0,  // No additional authenticated data (AAD)
+        NULL, 0,
         tag, GCM_TAG_SIZE,
         encrypted_data,
-        plaintext_out
+        temp_plaintext
     );
     
     mbedtls_gcm_free(&gcm);
     
     if (ret != 0) {
-        // Cannot use print_dbg() - causes infinite recursion!
         return false;
     }
     
+    memcpy(plaintext_out, temp_plaintext, encrypted_len);
     *plaintext_len_out = encrypted_len;
-    
-    // Cannot use print_dbg() here - would cause infinite recursion!
     
     return true;
 #else
@@ -197,18 +158,18 @@ bool aes_gcm_decrypt(
 #endif
 }
 
-// ============================================================================
-// Protocol Integration Functions
-// ============================================================================
-
+/**
+ * Decrypts frame payload if protocol state requires it (state >= 0x22).
+ * For unencrypted states, passes payload through unchanged.
+ * 
+ * @return true if processing succeeded, false on decryption failure
+ */
 bool decrypt_frame_if_needed(
     uint8_t* frame_buffer,
     uint16_t frame_len,
     uint8_t* decrypted_payload_out,
     uint16_t* decrypted_len_out
 ) {
-    // Frame format: [Type(1)][Length_H(1)][Length_L(1)][Payload...][Checksum(1)]
-    
     if (frame_len < 4) {
         return false; // Invalid frame
     }
@@ -217,39 +178,18 @@ bool decrypt_frame_if_needed(
     uint16_t payload_len = ((uint16_t)frame_buffer[1] << 8) | frame_buffer[2];
     uint8_t* payload = &frame_buffer[3];
     
-    // Access the global protocol state (extern declared in protocol.h)
     extern protocol_state_t protocol_state;
     
-    // Determine if we should decrypt based on state
-    // State >= 0x22: All messages after channel verification are encrypted
-    // Force encryption flag is for POC testing only
-    bool should_decrypt = false;
-    
-    if (force_encryption_enabled) {
-        // TEMPORARY POC: Always decrypt when force mode is enabled
-        should_decrypt = true;
-    } else {
-        // Normal operation: decrypt if we're past channel verification (state >= 0x22)
-        // State 0x20-0x21: ECDH exchange (unencrypted)
-        // State >= 0x22: Channel verified, all messages encrypted
-        if (protocol_state.current_state >= 0x22) {
-            should_decrypt = true;
-        }
-    }
+    bool should_decrypt = (protocol_state.current_state >= 0x22);
     
     if (should_decrypt) {
-        // Decrypt the payload using session key
-        // (In POC mode, this is set to poc_aes_key during init)
-        // (In normal mode, this is derived from ECDH)
         if (!aes_gcm_decrypt(payload, payload_len, protocol_state.aes_session_key,
                             decrypted_payload_out, decrypted_len_out)) {
-            // Cannot use print_dbg() - causes infinite recursion!
+            memcpy(decrypted_payload_out, payload, payload_len);
+            *decrypted_len_out = payload_len;
             return false;
         }
-        
-        // Cannot use print_dbg() here - would cause infinite recursion!
     } else {
-        // Passthrough - no decryption needed
         memcpy(decrypted_payload_out, payload, payload_len);
         *decrypted_len_out = payload_len;
     }
@@ -257,6 +197,12 @@ bool decrypt_frame_if_needed(
     return true;
 }
 
+/**
+ * Encrypts frame payload if protocol state requires it (state >= 0x22).
+ * For unencrypted states, passes payload through unchanged.
+ * 
+ * @return true if processing succeeded, false on encryption failure
+ */
 bool encrypt_frame_if_needed(
     uint8_t msg_type,
     const uint8_t* payload,
@@ -264,38 +210,16 @@ bool encrypt_frame_if_needed(
     uint8_t* encrypted_payload_out,
     uint16_t* encrypted_len_out
 ) {
-    // Access the global protocol state
     extern protocol_state_t protocol_state;
     
-    // Determine if we should encrypt based on state
-    // State >= 0x22: All messages after channel verification are encrypted
-    // Force encryption flag is for POC testing only
-    bool should_encrypt = false;
-    
-    if (force_encryption_enabled) {
-        // TEMPORARY POC: Always encrypt when force mode is enabled
-        should_encrypt = true;
-    } else {
-        // Normal operation: encrypt if we're past channel verification (state >= 0x22)
-        // State 0x20-0x21: ECDH exchange (unencrypted)
-        // State >= 0x22: Channel verified, all messages encrypted
-        if (protocol_state.current_state >= 0x22) {
-            should_encrypt = true;
-        }
-    }
+    bool should_encrypt = (protocol_state.current_state >= 0x22);
     
     if (should_encrypt) {
-        // Use the session key (in POC mode, this is set to poc_aes_key during init)
-        // (In normal mode, this is derived from ECDH)
         if (!aes_gcm_encrypt(payload, payload_len, protocol_state.aes_session_key,
                             encrypted_payload_out, encrypted_len_out)) {
-            // Cannot use print_dbg() - causes infinite recursion!
             return false;
         }
-        
-        // Cannot use print_dbg() here - would cause infinite recursion!
     } else {
-        // Passthrough - no encryption needed
         memcpy(encrypted_payload_out, payload, payload_len);
         *encrypted_len_out = payload_len;
     }
@@ -303,13 +227,16 @@ bool encrypt_frame_if_needed(
     return true;
 }
 
-// ============================================================================
-// HKDF-SHA256 Key Derivation using mbedTLS
-// ============================================================================
-
+/**
+ * Derives AES-128 session key from ECDH shared secret using HKDF-SHA256.
+ * Uses salt "MASTR-Session-Key-v1" and empty info parameter.
+ * 
+ * @param shared_secret 32-byte ECDH shared secret
+ * @param session_key_out Output buffer for 16-byte AES key
+ * @return true if derivation succeeded, false otherwise
+ */
 bool derive_session_key(const uint8_t* shared_secret, uint8_t* session_key_out) {
 #ifndef UNIT_TEST
-    // HKDF-SHA256 to derive 16-byte AES key from 32-byte ECDH shared secret
     
     const uint8_t salt[] = "MASTR-Session-Key-v1"; // Application-specific salt
     const uint8_t info[] = "";  // Optional context/info (empty for now)
@@ -330,15 +257,200 @@ bool derive_session_key(const uint8_t* shared_secret, uint8_t* session_key_out) 
     );
     
     if (ret != 0) {
-        // Cannot use print_dbg() - causes infinite recursion!
         return false;
     }
-    
-    // Cannot use print_dbg() here - would cause infinite recursion!
     
     return true;
 #else
     (void)shared_secret; (void)session_key_out;
+    return false;
+#endif
+}
+
+/**
+ * Generates ephemeral P-256 keypair using ATECC608A.
+ * Private key stored in volatile TempKey, public key returned.
+ * 
+ * @param ephemeral_pubkey_out Output buffer for 64-byte public key (X||Y)
+ * @return true if generation succeeded, false otherwise
+ */
+bool ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out) {
+#ifndef UNIT_TEST
+    ATCA_STATUS status = atcab_genkey(ATCA_TEMPKEY_KEYID, ephemeral_pubkey_out);
+    
+    if (status != ATCA_SUCCESS) {
+        print_dbg("ECDH ERROR: Failed to generate ephemeral key: 0x%02X\n", status);
+        return false;
+    }
+    
+    return true;
+#else
+    (void)ephemeral_pubkey_out;
+    return false;
+#endif
+}
+
+/**
+ * Signs message with token's permanent private key (ATECC608A Slot 0).
+ * Returns raw signature format (R||S, 64 bytes), not DER.
+ * 
+ * @param message Message to sign (will be hashed if not already 32 bytes)
+ * @param message_len Length of message
+ * @param signature_out Output buffer for 64-byte signature
+ * @return true if signing succeeded, false otherwise
+ */
+bool ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_len,
+                                   uint8_t* signature_out) {
+#ifndef UNIT_TEST
+    uint8_t hash[32];
+    if (message_len == 32) {
+        memcpy(hash, message, 32);
+    } else {
+        pico_sha256_state_t state;
+        sha256_result_t result;
+        pico_sha256_start_blocking(&state, SHA256_BIG_ENDIAN, false);
+        pico_sha256_update_blocking(&state, message, message_len);
+        pico_sha256_finish(&state, &result);
+        memcpy(hash, result.bytes, 32);
+    }
+    
+    // Sign using permanent private key in Slot 0
+    ATCA_STATUS status = atcab_sign(SLOT_PERMANENT_PRIVKEY, hash, signature_out);
+    
+    if (status != ATCA_SUCCESS) {
+        print_dbg("ECDH ERROR: Failed to sign message: 0x%02X\n", status);
+        return false;
+    }
+    
+    return true;
+#else
+    (void)message; (void)message_len; (void)signature_out;
+    return false;
+#endif
+}
+
+/**
+ * Reads host's permanent public key from ATECC608A Slot 8.
+ * Reads 64 bytes in two 32-byte blocks (ATECC limitation).
+ * 
+ * @param host_pubkey_out Output buffer for 64-byte public key
+ * @return true if read succeeded, false otherwise
+ */
+bool ecdh_read_host_pubkey(uint8_t* host_pubkey_out) {
+#ifndef UNIT_TEST
+    for (int block = 0; block < 2; block++) {
+        ATCA_STATUS status = atcab_read_zone(
+            ATCA_ZONE_DATA,
+            SLOT_HOST_PUBKEY,
+            block,
+            0,
+            host_pubkey_out + (block * 32),
+            32
+        );
+        
+        if (status != ATCA_SUCCESS) {
+            print_dbg("ECDH ERROR: Failed to read host pubkey block %d: 0x%02X\n", block, status);
+            return false;
+        }
+    }
+    
+    return true;
+#else
+    (void)host_pubkey_out;
+    return false;
+#endif
+}
+
+/**
+ * Verifies ECDSA signature using ATECC608A hardware verification.
+ * Uses host's permanent public key for verification.
+ * 
+ * @param message Message that was signed (will be hashed if not already 32 bytes)
+ * @param message_len Length of message
+ * @param signature 64-byte signature in raw format (R||S)
+ * @param host_pubkey 64-byte host public key
+ * @return true if signature is valid, false otherwise
+ */
+bool ecdh_verify_signature(const uint8_t* message, size_t message_len,
+                           const uint8_t* signature, const uint8_t* host_pubkey) {
+#ifndef UNIT_TEST
+    uint8_t hash[32];
+    if (message_len == 32) {
+        memcpy(hash, message, 32);
+    } else {
+        pico_sha256_state_t state;
+        sha256_result_t result;
+        pico_sha256_start_blocking(&state, SHA256_BIG_ENDIAN, false);
+        pico_sha256_update_blocking(&state, message, message_len);
+        pico_sha256_finish(&state, &result);
+        memcpy(hash, result.bytes, 32);
+    }
+    
+    bool is_verified = false;
+    ATCA_STATUS status = atcab_verify_extern(hash, signature, host_pubkey, &is_verified);
+    
+    if (status != ATCA_SUCCESS) {
+        print_dbg("ECDH ERROR: verify failed, status: 0x%02X\n", status);
+        return false;
+    }
+    
+    if (!is_verified) {
+        print_dbg("ECDH ERROR: Signature invalid\n");
+        return false;
+    }
+    
+    return true;
+#else
+    (void)message; (void)message_len; (void)signature; (void)host_pubkey;
+    return false;
+#endif
+}
+
+/**
+ * Computes ECDH shared secret using ephemeral private key in TempKey.
+ * Uses ATECC608A hardware to perform P-256 ECDH operation.
+ * 
+ * @param peer_ephemeral_pubkey Peer's 64-byte ephemeral public key
+ * */
+bool ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
+                                uint8_t* shared_secret_out) {
+#ifndef UNIT_TEST
+    ATCA_STATUS status = atcab_ecdh_tempkey(
+        peer_ephemeral_pubkey,
+        shared_secret_out
+    );
+    
+    if (status != ATCA_SUCCESS) {
+        print_dbg("ECDH ERROR: Failed to compute shared secret: 0x%02X\n", status);
+        return false;
+    }
+    
+    return true;
+#else
+    (void)peer_ephemeral_pubkey; (void)shared_secret_out;
+    return false;
+#endif
+}
+
+/**
+ * Reads token's permanent public key from ATECC608A Slot 0.
+ * 
+ * @param token_pubkey_out Output buffer for 64-byte public key
+ * @return true if read succeeded, false otherwise
+ */
+bool ecdh_read_token_pubkey(uint8_t* token_pubkey_out) {
+#ifndef UNIT_TEST
+    ATCA_STATUS status = atcab_get_pubkey(SLOT_PERMANENT_PRIVKEY, token_pubkey_out);
+    
+    if (status != ATCA_SUCCESS) {
+        print_dbg("ECDH ERROR: Failed to read token pubkey: 0x%02X\n", status);
+        return false;
+    }
+    
+    print_dbg("ECDH: Read token permanent pubkey from Slot 0\n");
+    return true;
+#else
+    (void)token_pubkey_out;
     return false;
 #endif
 }

@@ -49,16 +49,16 @@ typedef enum {
     T2H_ECDH_SHARE = 0x21,
 
     /**
-     * @brief H2T: Host sends an encrypted ping to verify the newly derived SessionKey.
-     * \n payload: An encrypted block of known data (e.g., a 16-byte ping).
+     * @brief T2H: Token sends an encrypted challenge to verify the newly derived SessionKey.
+     * \n payload: An encrypted 32-byte random challenge.
      */
-    H2T_CHANNEL_VERIFY_REQUEST = 0x22,
+    T2H_CHANNEL_VERIFY_REQUEST = 0x22,
 
     /**
-     * @brief T2H: Token decrypts the ping, verifies it, and returns an encrypted pong.
-     * \n payload: An encrypted block of known data (e.g., a 16-byte pong).
+     * @brief H2T: Host decrypts the challenge and returns an encrypted hash.
+     * \n payload: An encrypted SHA256 hash of the challenge.
      */
-    T2H_CHANNEL_VERIFY_RESPONSE = 0x23,
+    H2T_CHANNEL_VERIFY_RESPONSE = 0x23,
 
 
     // --------------------------------------------------------------------
@@ -143,6 +143,18 @@ typedef enum {
      * \n payload: 32 bytes of random data
      */
     T2H_TEST_RANDOM_RESPONSE = 0xFC,
+
+    /**
+     * @brief H2T: Host sends its permanent public key for debugging/setup
+     * \n payload: 64-byte P-256 public key
+     */
+    H2T_DEBUG_SET_HOST_PUBKEY = 0xFB,
+
+    /**
+     * @brief T2H: Token sends its permanent public key for debugging/setup
+     * \n payload: 64-byte P-256 public key
+     */
+    T2H_DEBUG_GET_TOKEN_PUBKEY = 0xFA,
     #endif
 
 } message_type_t;
@@ -156,9 +168,19 @@ typedef struct{
     // and plumb the software to never respond to anything ever again, this is out SHUTDOWN state (0XFF)
     uint8_t current_state;
     uint64_t current_state_begin_timestamp;
-    uint8_t et_pubkey[64];
-    uint8_t received_host_eph_pubkey[64];
+    
+    // Permanent public keys (stored persistently)
+    uint8_t host_permanent_pubkey[64];  // Host's permanent pubkey (from ATECC Slot 8)
+    
+    // Ephemeral ECDH keys (session-specific)
+    uint8_t et_pubkey[64];               // Token's ephemeral pubkey
+    uint8_t received_host_eph_pubkey[64]; // Host's ephemeral pubkey
+    
+    // Derived session key
     uint8_t aes_session_key[16];
+    
+    // Channel verification challenge
+    uint8_t channel_challenge[32];       // Random challenge sent to host
 
     // missed hb will increment if the expected hearbeat time is exceeded.
     uint8_t missed_hb_count;
@@ -175,4 +197,5 @@ void provision_protocol();
 void unprovision_protocol();
 bool protocol_check_provisioned();
 void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_t len);
+void send_channel_verification_challenge();
 #endif

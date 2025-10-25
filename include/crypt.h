@@ -2,6 +2,7 @@
 #define CRYPT_H
 
 #include <stdint.h>
+#include <stddef.h>
 #include <stdbool.h>
 #include "protocol.h"
 
@@ -119,6 +120,85 @@ bool encrypt_frame_if_needed(
  * @return true if derivation successful, false otherwise
  */
 bool derive_session_key(const uint8_t* shared_secret, uint8_t* session_key_out);
+
+// ============================================================================
+// ECDH Key Exchange Functions (using ATECC608A)
+// ============================================================================
+
+// ATECC608A slot assignments
+#define SLOT_PERMANENT_PRIVKEY  0   // Permanent private key for signing
+#define SLOT_HOST_PUBKEY        8   // Host's permanent public key (64 bytes)
+
+// Key sizes
+#define ECDH_PUBKEY_SIZE       64   // P-256 public key (X + Y coordinates)
+#define ECDH_SIGNATURE_SIZE    64   // ECDSA signature (R + S components)
+#define ECDH_SHARED_SECRET_SIZE 32  // ECDH shared secret output
+
+/**
+ * @brief Generate ephemeral keypair in ATECC608A TempKey
+ * 
+ * The private key is stored in volatile TempKey memory.
+ * The public key is returned for transmission to peer.
+ * 
+ * @param ephemeral_pubkey_out Buffer to receive 64-byte public key
+ * @return true on success, false on failure
+ */
+bool ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out);
+
+/**
+ * @brief Sign a message using permanent private key in Slot 0
+ * 
+ * @param message Message to sign (typically hash of data)
+ * @param message_len Length of message (typically 32 bytes for SHA256)
+ * @param signature_out Buffer to receive 64-byte signature
+ * @return true on success, false on failure
+ */
+bool ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_len, 
+                                   uint8_t* signature_out);
+
+/**
+ * @brief Read host's permanent public key from Slot 8
+ * 
+ * @param host_pubkey_out Buffer to receive 64-byte public key
+ * @return true on success, false on failure
+ */
+bool ecdh_read_host_pubkey(uint8_t* host_pubkey_out);
+
+/**
+ * @brief Verify signature using host's permanent public key
+ * 
+ * @param message Message that was signed (typically hash)
+ * @param message_len Length of message (typically 32 bytes)
+ * @param signature Signature to verify (64 bytes)
+ * @param host_pubkey Host's public key (64 bytes)
+ * @return true if signature is valid, false otherwise
+ */
+bool ecdh_verify_signature(const uint8_t* message, size_t message_len,
+                           const uint8_t* signature, const uint8_t* host_pubkey);
+
+/**
+ * @brief Perform ECDH using ephemeral key in TempKey
+ * 
+ * Uses the ephemeral private key stored in TempKey and the peer's
+ * ephemeral public key to compute the shared secret.
+ * 
+ * @param peer_ephemeral_pubkey Peer's ephemeral public key (64 bytes)
+ * @param shared_secret_out Buffer to receive 32-byte shared secret
+ * @return true on success, false on failure
+ */
+bool ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
+                                uint8_t* shared_secret_out);
+
+/**
+ * @brief Read token's permanent public key from Slot 0
+ * 
+ * This is used by the host to verify the token's identity.
+ * In production, this should be read once and hardcoded on the host.
+ * 
+ * @param token_pubkey_out Buffer to receive 64-byte public key
+ * @return true on success, false on failure
+ */
+bool ecdh_read_token_pubkey(uint8_t* token_pubkey_out);
 
 // ============================================================================
 // POC/Testing Functions - TEMPORARY

@@ -82,12 +82,12 @@ int main() {
     
     print_dbg("About to enable forced encryption...\n");
     
-    // TEMPORARY: Enable forced encryption for POC testing
-    // Copy POC key into protocol_state so we don't need conditional logic
-    memcpy(protocol_state.aes_session_key, get_poc_aes_key(), AES_KEY_SIZE);
-    set_force_encryption(true);
+    // TEMPORARY: Disable forced encryption to test key exchange
+    // We'll enable it after ECDH completes
+    // memcpy(protocol_state.aes_session_key, get_poc_aes_key(), AES_KEY_SIZE);
+    // set_force_encryption(true);
     
-    print_dbg("POC Mode: Forced encryption enabled with hardcoded key\n");
+    print_dbg("Key exchange mode: Encryption disabled, waiting for ECDH\n");
     
     // Create the serial processing task
     // Priority hierarchy relative to (configMAX_PRIORITIES = 32):
@@ -114,7 +114,13 @@ int main() {
 
     // replace with protocol init function
     protocol_state.protocol_begin_timestamp = time_us_64();
-    
+
+    // init protocol by starting it at 0x20 (the correct initial state)
+    protocol_state.current_state = H2T_ECDH_SHARE;
+
+    // TODO check if the token has been provisioned, if not, do special magic to
+    // start the web server in a special admin mode.
+
     // Start the FreeRTOS scheduler
     print_dbg("Starting FreeRTOS scheduler...\n");
     vTaskStartScheduler();
