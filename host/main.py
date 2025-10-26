@@ -99,7 +99,7 @@ class MASTRHost:
             baudrate: Serial baud rate
             crypto: Crypto implementation (defaults to NaiveCrypto)
             verbose: Enable verbose output
-            auto_provision: Automatically provision keys if missing
+            auto_provision: Automatically provision keys and golden hash if True
         """
         self.port = port
         self.baudrate = baudrate
@@ -126,6 +126,13 @@ class MASTRHost:
         self.buffered_challenge = None
         self.token_pubkey_received_event = threading.Event()
         self.received_token_pubkey = None
+        self.golden_hash_set_event = threading.Event()
+        self.golden_hash_ack_received = None
+        
+        # Phase 2: Integrity verification
+        self.integrity_challenge_event = threading.Event()
+        self.received_nonce = None
+        self.boot_ok_event = threading.Event()
         
         self.handler = SerialHandler(
             port=port,
@@ -174,6 +181,15 @@ class MASTRHost:
         
         elif frame.msg_type == MessageType.T2H_DEBUG_GET_TOKEN_PUBKEY:
             self._handle_token_pubkey_response(payload)
+        
+        elif frame.msg_type == MessageType.H2T_DEBUG_SET_GOLDEN_HASH:
+            self._handle_golden_hash_ack(payload)
+        
+        elif frame.msg_type == MessageType.T2H_INTEGRITY_CHALLENGE:
+            self._handle_integrity_challenge(payload)
+        
+        elif frame.msg_type == MessageType.T2H_BOOT_OK:
+            self._handle_boot_ok(payload)
         
         elif frame.msg_type == MessageType.T2H_ERROR:
             self._handle_error(payload)
@@ -237,12 +253,35 @@ class MASTRHost:
         else:
             print(f"{Colors.RED}[ERROR]{Colors.RESET} Invalid token pubkey length: {len(payload)} (expected 64)")
     
+    def _handle_golden_hash_ack(self, payload: bytes):
+        """Handle H2T_DEBUG_SET_GOLDEN_HASH acknowledgment"""
+        if len(payload) == 32:
+            self.golden_hash_ack_received = payload
+            self.golden_hash_set_event.set()
+            print(f"{Colors.GREEN}✓{Colors.RESET} Golden hash set confirmed: {payload[:16].hex()}...")
+        else:
+            print(f"{Colors.RED}[ERROR]{Colors.RESET} Invalid golden hash ack length: {len(payload)} (expected 32)")
+    def _handle_boot_ok(self, payload: bytes):
+        """Handle T2H_BOOT_OK from token"""
+        print(f"{Colors.GREEN}✓{Colors.RESET} Token sent BOOT_OK - integrity verification passed!")
+        self.boot_ok_event.set()
+    
+    
     def _handle_error(self, payload: bytes):
         """Handle T2H_ERROR"""
         if len(payload) >= 1:
             error_code = payload[0]
             error_msg = payload[1:].decode('utf-8', errors='replace') if len(payload) > 1 else ""
             print(f"{Colors.RED}[TOKEN ERROR]{Colors.RESET} Code: 0x{error_code:02X}, Message: {error_msg}")
+    
+    def _handle_integrity_challenge(self, payload: bytes):
+        """Handle T2H_INTEGRITY_CHALLENGE (nonce from token)"""
+        if len(payload) == 4:
+            self.received_nonce = payload
+            self.integrity_challenge_event.set()
+            print(f"{Colors.CYAN}[INTEGRITY]{Colors.RESET} Received challenge nonce: {payload.hex()}")
+        else:
+            print(f"{Colors.RED}[ERROR]{Colors.RESET} Invalid nonce length: {len(payload)} (expected 4)")
     
     def _handle_nack(self, payload: bytes):
         """Handle T2H_NACK"""
@@ -337,6 +376,12 @@ class MASTRHost:
             # Reload keys
             if self.crypto.load_permanent_keys():
                 print(f"{Colors.GREEN}✓{Colors.RESET} Keys provisioned successfully!")
+                
+                # Step 5: Provision default golden hash
+                if not self._provision_golden_hash():
+                    print(f"{Colors.RED}[ERROR]{Colors.RESET} Failed to provision golden hash")
+                    return False
+                
                 return True
             else:
                 print(f"{Colors.RED}[ERROR]{Colors.RESET} Failed to reload keys")
@@ -344,6 +389,49 @@ class MASTRHost:
         except Exception as e:
             print(f"{Colors.RED}[ERROR]{Colors.RESET} Failed to save token pubkey: {e}")
             return False
+    
+    def _provision_golden_hash(self) -> bool:
+        """Compute and provision default golden hash to token"""
+        import hashlib
+        
+        print(f"\n{Colors.CYAN}=== Provisioning Golden Hash ==={Colors.RESET}")
+        
+        # Step 1: Compute golden hash from default test data: 2 bytes = 'h' + null terminator
+        print(f"1. Computing golden hash from default test data (2 bytes: 'h' + null)...")
+        test_data = b"h\0"  # 2 bytes: 0x68 0x00
+        golden_hash = hashlib.sha256(test_data).digest()
+        print(f"   {Colors.GREEN}✓{Colors.RESET} Test data: {test_data.hex()} ({len(test_data)} bytes)")
+        print(f"   {Colors.GREEN}✓{Colors.RESET} Golden hash: {golden_hash.hex()}")
+        
+        # Save golden hash to disk for future testing
+        try:
+            with open('golden_hash.bin', 'wb') as f:
+                f.write(golden_hash)
+            print(f"   {Colors.GREEN}✓{Colors.RESET} Saved to golden_hash.bin")
+        except Exception as e:
+            print(f"   {Colors.YELLOW}[WARNING]{Colors.RESET} Could not save golden hash: {e}")
+        
+        # Step 2: Send golden hash to token
+        print(f"2. Sending golden hash to token...")
+        if not self.handler.send_frame(MessageType.H2T_DEBUG_SET_GOLDEN_HASH.value, golden_hash):
+            print(f"   {Colors.RED}✗{Colors.RESET} Failed to send golden hash")
+            return False
+        
+        # Step 3: Wait for acknowledgment
+        print(f"3. Waiting for acknowledgment (timeout: 5s)...")
+        if not self.golden_hash_set_event.wait(timeout=5.0):
+            print(f"   {Colors.RED}✗{Colors.RESET} Timeout waiting for ack")
+            return False
+        
+        # Step 4: Verify the ack matches what we sent
+        if self.golden_hash_ack_received != golden_hash:
+            print(f"   {Colors.RED}✗{Colors.RESET} Golden hash mismatch!")
+            print(f"      Sent:     {golden_hash.hex()}")
+            print(f"      Received: {self.golden_hash_ack_received.hex()}")
+            return False
+        
+        print(f"{Colors.GREEN}✓{Colors.RESET} Golden hash provisioned successfully!")
+        return True
     
     # ========================================================================
     # PHASE 1: MUTUAL AUTHENTICATION (ECDH)
@@ -462,6 +550,97 @@ class MASTRHost:
         self.protocol_state = 0x24
         
         return True
+    # ========================================================================
+    # PHASE 2: INTEGRITY VERIFICATION
+    # ========================================================================
+    
+    def _perform_integrity_verification(self) -> bool:
+        """
+        Execute Phase 2: Integrity Verification
+        
+        Returns:
+            True if verification successful, False otherwise
+        """
+        import hashlib
+        
+        print(f"\n{Colors.CYAN}=== Phase 2: Integrity Verification ==={Colors.RESET}")
+        
+        # Wait for integrity challenge from token
+        print(f"\n10. Waiting for integrity challenge (timeout: 10s)...")
+        if not self.integrity_challenge_event.wait(timeout=10.0):
+            print(f"   {Colors.RED}✗{Colors.RESET} Timeout waiting for challenge")
+            return False
+        
+        nonce = self.received_nonce
+        print(f"   {Colors.GREEN}✓{Colors.RESET} Received nonce: {nonce.hex()}")
+        
+        # Load the golden hash we provisioned
+        print(f"\n11. Loading golden hash...")
+        try:
+            with open('golden_hash.bin', 'rb') as f:
+                golden_hash = f.read()
+            if len(golden_hash) != 32:
+                print(f"   {Colors.RED}✗{Colors.RESET} Invalid golden hash length: {len(golden_hash)}")
+                return False
+            print(f"   {Colors.GREEN}✓{Colors.RESET} Golden hash: {golden_hash[:16].hex()}...")
+        except FileNotFoundError:
+            print(f"   {Colors.RED}✗{Colors.RESET} Golden hash file not found. Run with --provision first.")
+            return False
+        except Exception as e:
+            print(f"   {Colors.RED}✗{Colors.RESET} Error loading golden hash: {e}")
+            return False
+        
+        # Combine hash + nonce for signing
+        print(f"\n12. Preparing integrity response...")
+        message_to_sign = golden_hash + nonce
+        print(f"   Message to sign: hash + nonce ({len(message_to_sign)} bytes)")
+        
+        # Sign with permanent private key
+        print(f"\n13. Signing with permanent key...")
+        signature = self.crypto.sign_with_permanent_key(message_to_sign)
+        if signature is None:
+            print(f"   {Colors.RED}✗{Colors.RESET} Failed to sign")
+            return False
+        print(f"   {Colors.GREEN}✓{Colors.RESET} Signature: {signature[:32].hex()}...")
+        
+        # Send H2T_INTEGRITY_RESPONSE: hash (32) + signature (64) = 96 bytes
+        print(f"\n14. Sending integrity response...")
+        payload = golden_hash + signature
+        
+        # Encrypt the payload (we're in state 0x24, encryption is active)
+        encrypted_payload = self.crypto.encrypt_payload(payload)
+        if encrypted_payload is None:
+            print(f"   {Colors.RED}✗{Colors.RESET} Failed to encrypt payload")
+            return False
+        
+        if not self.handler.send_frame(MessageType.H2T_INTEGRITY_RESPONSE.value, encrypted_payload):
+            print(f"   {Colors.RED}✗{Colors.RESET} Failed to send response")
+            return False
+        
+        print(f"   {Colors.GREEN}✓{Colors.RESET} Sent {len(payload)} bytes (hash + signature)")
+        
+        # Update state to waiting for BOOT_OK
+        self.protocol_state = 0x31
+        
+        # Wait for BOOT_OK from token
+        print(f"\n15. Waiting for BOOT_OK from token (timeout: 10s)...")
+        if not self.boot_ok_event.wait(timeout=10.0):
+            print(f"   {Colors.RED}✗{Colors.RESET} Timeout waiting for BOOT_OK")
+            return False
+        
+        # Send acknowledgment
+        print(f"\n16. Sending BOOT_OK acknowledgment...")
+        if not self.handler.send_frame(MessageType.H2T_BOOT_OK_ACK.value, self.crypto.encrypt_payload(b'')):
+            print(f"   {Colors.RED}✗{Colors.RESET} Failed to send ACK")
+            return False
+        
+        print(f"   {Colors.GREEN}✓{Colors.RESET} BOOT_OK ACK sent")
+        
+        # Update state to complete
+        self.protocol_state = 0x34
+        
+        return True
+    
     
     # ========================================================================
     # MAIN PROTOCOL EXECUTION
@@ -511,25 +690,22 @@ class MASTRHost:
                 print(f"\n{Colors.RED}✗ Channel verification failed{Colors.RESET}")
                 return 1
             
-            # Success!
+            # Channel established!
             print(f"\n{Colors.GREEN}{'='*60}{Colors.RESET}")
             print(f"{Colors.GREEN}✅ Secure channel established!{Colors.RESET}")
             print(f"{Colors.GREEN}{'='*60}{Colors.RESET}")
             print(f"Protocol state: 0x{self.protocol_state:02X}")
             print(f"Session key: {self.crypto.get_session_key().hex()}")
             
-            # ================================================================
-            # TODO: Phase 2 - Integrity Verification
-            # ================================================================
-            # When implementing Phase 2, add:
-            #   1. _handle_integrity_challenge() handler
-            #   2. _perform_integrity_verification() method
-            #   3. Add case for T2H_INTEGRITY_CHALLENGE in on_frame_received()
-            #   4. Implement firmware measurement/attestation logic
-            #
-            # if not self._perform_integrity_verification():
-            #     print(f"\n{Colors.RED}✗ Integrity verification failed{Colors.RESET}")
-            #     return 1
+            # Phase 2: Integrity Verification
+            if not self._perform_integrity_verification():
+                print(f"\n{Colors.RED}✗ Integrity verification failed{Colors.RESET}")
+                return 1
+            
+            # Success!
+            print(f"\n{Colors.GREEN}{'='*60}{Colors.RESET}")
+            print(f"{Colors.GREEN}✅ Integrity verification complete!{Colors.RESET}")
+            print(f"{Colors.GREEN}{'='*60}{Colors.RESET}")
             
             # ================================================================
             # TODO: Phase 3 - Runtime Heartbeat
@@ -606,7 +782,7 @@ def main():
     parser.add_argument(
         '--provision',
         action='store_true',
-        help='Automatically provision token keys if missing'
+        help='Automatically provision token keys and golden hash'
     )
     
     args = parser.parse_args()

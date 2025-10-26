@@ -50,6 +50,7 @@ class MessageType(IntEnum):
     T2H_TEST_RANDOM_RESPONSE = 0xFC
     H2T_DEBUG_SET_HOST_PUBKEY = 0xFB
     T2H_DEBUG_GET_TOKEN_PUBKEY = 0xFA
+    H2T_DEBUG_SET_GOLDEN_HASH = 0xF9
 
 
 class Frame(NamedTuple):

@@ -219,7 +219,13 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
             break;
         
         case H2T_BOOT_OK_ACK:
-            // do nothing, advance the state.
+            if(protocol_state.current_state != 0x32){
+                print_dbg("ERROR: BOOT_OK_ACK rejected (wrong state: 0x%02X)\n", protocol_state.current_state);
+                send_shutdown_signal();
+                break;
+            }
+            
+            print_dbg("Received BOOT_OK_ACK, advancing to runtime state\n");
             protocol_state.current_state = 0x40;
             break;
         
