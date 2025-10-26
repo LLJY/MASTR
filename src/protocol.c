@@ -140,19 +140,16 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
             #ifndef UNIT_TEST
             {
                 if (len < 4) {
-                    print_dbg("ERROR: Invalid pong length: %d\n", len);
                     send_shutdown_signal();
                     break;
                 }
 
                 if (memcmp(payload, "pong", 4) != 0) {
-                    print_dbg("ERROR: Invalid pong response\n");
                     send_shutdown_signal();
                     break;
                 }
 
                 protocol_state.current_state = 0x24;
-                print_dbg("=== SECURE CHANNEL ESTABLISHED ===\n");
             }
             #endif
             break;
@@ -181,7 +178,6 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
         
         // ===== TESTING & DEBUG =====
         case H2T_TEST_RANDOM_REQUEST:
-            print_dbg("Handler: H2T_TEST_RANDOM_REQUEST - Generating random number...\n");
             #ifndef UNIT_TEST
             {
                 // Generate random number using ATECC608
@@ -199,7 +195,6 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
             break;
         
         case H2T_DEBUG_SET_HOST_PUBKEY:
-            print_dbg("Handler: H2T_DEBUG_SET_HOST_PUBKEY - Storing host permanent pubkey...\n");
             #ifndef UNIT_TEST
             {
                 if (len != 64) {
@@ -224,14 +219,12 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                     }
                 }
                 
-                print_dbg("Host permanent pubkey stored in ATECC Slot 8 (64 bytes)\n");
                 memcpy(protocol_state.host_permanent_pubkey, payload, 64);
             }
             #endif
             break;
         
         case T2H_DEBUG_GET_TOKEN_PUBKEY:
-            print_dbg("Handler: T2H_DEBUG_GET_TOKEN_PUBKEY - Reading token permanent pubkey...\n");
             #ifndef UNIT_TEST
             {
                 // Read token's permanent public key from Slot 0
@@ -239,7 +232,6 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                 ATCA_STATUS status = atcab_get_pubkey(SLOT_PERMANENT_PRIVKEY, token_pubkey);
                 
                 if (status == ATCA_SUCCESS) {
-                    print_dbg("Token permanent pubkey read from ATECC Slot 0\n");
                     send_message(T2H_DEBUG_GET_TOKEN_PUBKEY, token_pubkey, 64);
                 } else {
                     print_dbg("ERROR: Failed to read token pubkey, status: 0x%02X\n", status);

@@ -282,7 +282,6 @@ bool derive_session_key(const uint8_t* shared_secret, uint8_t* session_key_out) 
     // Use mbedTLS HKDF
     const mbedtls_md_info_t *md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
     if (md_info == NULL) {
-        // Cannot use print_dbg() - causes infinite recursion!
         return false;
     }
     
@@ -317,7 +316,6 @@ bool ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out) {
     ATCA_STATUS status = atcab_genkey(ATCA_TEMPKEY_KEYID, ephemeral_pubkey_out);
     
     if (status != ATCA_SUCCESS) {
-        print_dbg("ECDH ERROR: Failed to generate ephemeral key: 0x%02X\n", status);
         return false;
     }
     
@@ -351,7 +349,6 @@ bool ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_len,
     ATCA_STATUS status = atcab_sign(SLOT_PERMANENT_PRIVKEY, hash, signature_out);
     
     if (status != ATCA_SUCCESS) {
-        print_dbg("ECDH ERROR: Failed to sign message: 0x%02X\n", status);
         return false;
     }
     
@@ -382,7 +379,6 @@ bool ecdh_read_host_pubkey(uint8_t* host_pubkey_out) {
         );
         
         if (status != ATCA_SUCCESS) {
-            print_dbg("ECDH ERROR: Failed to read host pubkey block %d: 0x%02X\n", block, status);
             return false;
         }
     }
@@ -418,12 +414,10 @@ bool ecdh_verify_signature(const uint8_t* message, size_t message_len,
     ATCA_STATUS status = atcab_verify_extern(hash, signature, host_pubkey, &is_verified);
     
     if (status != ATCA_SUCCESS) {
-        print_dbg("ECDH ERROR: verify failed, status: 0x%02X (%d)\n", status, (int)status);
         return false;
     }
     
     if (!is_verified) {
-        print_dbg("ECDH ERROR: Signature invalid\n");
         return false;
     }
     
@@ -449,7 +443,6 @@ bool ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
     );
     
     if (status != ATCA_SUCCESS) {
-        print_dbg("ECDH ERROR: Failed to compute shared secret: 0x%02X\n", status);
         return false;
     }
     
@@ -471,11 +464,9 @@ bool ecdh_read_token_pubkey(uint8_t* token_pubkey_out) {
     ATCA_STATUS status = atcab_get_pubkey(SLOT_PERMANENT_PRIVKEY, token_pubkey_out);
     
     if (status != ATCA_SUCCESS) {
-        print_dbg("ECDH ERROR: Failed to read token pubkey: 0x%02X\n", status);
         return false;
     }
     
-    print_dbg("ECDH: Read token permanent pubkey from Slot 0\n");
     return true;
 #else
     (void)token_pubkey_out;

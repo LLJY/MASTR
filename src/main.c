@@ -53,7 +53,6 @@ int main() {
     stdio_init_all();
     
     print_board_info();
-    print_dbg("FreeRTOS Integration Test\n");
     
     // Initialize cryptoauthlib (HAL will initialize I2C hardware)
     ATCAIfaceCfg cfg = {
@@ -68,27 +67,13 @@ int main() {
     
     ATCA_STATUS status = atcab_init(&cfg);
     if (status == ATCA_SUCCESS) {
-        print_dbg("ATECC608 initialized successfully\n");
-    } else {
-        print_dbg("WARNING: ATECC608 init failed, status: 0x%02X\n", status);
     }
     
     // Initialize cryptographic subsystem
     if (!crypt_init()) {
         print_dbg("WARNING: Crypto subsystem init failed\n");
-    } else {
-        print_dbg("Crypto subsystem initialized\n");
     }
-    
-    print_dbg("About to enable forced encryption...\n");
-    
-    // TEMPORARY: Disable forced encryption to test key exchange
-    // We'll enable it after ECDH completes
-    // memcpy(protocol_state.aes_session_key, get_poc_aes_key(), AES_KEY_SIZE);
-    // set_force_encryption(true);
-    
-    print_dbg("Key exchange mode: Encryption disabled, waiting for ECDH\n");
-    
+        
     // Create the serial processing task
     // Priority hierarchy relative to (configMAX_PRIORITIES = 32):
     //   31 (MAX-1): Timer task (FreeRTOS system)
@@ -122,7 +107,6 @@ int main() {
     // start the web server in a special admin mode.
 
     // Start the FreeRTOS scheduler
-    print_dbg("Starting FreeRTOS scheduler...\n");
     vTaskStartScheduler();
     
     // Should never reach here

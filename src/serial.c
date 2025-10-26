@@ -64,7 +64,6 @@ void serial_init(TaskHandle_t task_handle) {
     serial_task_handle = task_handle;
     
     if (serial_task_handle == NULL) {
-        print_dbg("WARNING: serial_init called with NULL task handle\n");
         return;
     }
     
@@ -187,7 +186,7 @@ void process_serial_data()
 static void process_complete_frame() {
     // Frame must have at least 4 bytes: Type(1), Length(2), Checksum(1)
     if (frame_len < 4) {
-        print_dbg("FRAME ERROR: Frame too short (%d bytes)", frame_len);
+        // TODO NACK
         return; // Invalid frame
     }
 
