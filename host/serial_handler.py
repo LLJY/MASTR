@@ -13,12 +13,7 @@ class SerialHandler:
     """
     Manages serial communication with the token device.
     Runs a background thread to continuously read from the serial port.
-    
-    Handles encryption/decryption transparently at the serial layer:
-    - When sending: automatically encrypts payloads if protocol state >= 0x22
-    - When receiving: automatically decrypts payloads if protocol state >= 0x22
-    
-    This mirrors the C implementation in src/serial.c and src/crypt.c
+    Handles encryption/decryption transparently at the serial layer.
     """
     
     def __init__(
@@ -49,7 +44,7 @@ class SerialHandler:
         self.crypto = crypto_handler
         
         self._serial: Optional[serial.Serial] = None
-        self._parser = FrameParser(on_frame=self._handle_frame)
+        self._parser = FrameParser(on_frame=self._handle_raw_frame)
         self._running = False
         self._thread: Optional[threading.Thread] = None
     
@@ -76,7 +71,7 @@ class SerialHandler:
                     write_timeout=1.0
                 )
                 # Reset parser state on new connection
-                self._parser = FrameParser(on_frame=self._handle_frame)
+                self._parser = FrameParser(on_frame=self._handle_raw_frame)
                 return True
             except (serial.SerialException, OSError) as e:
                 if retry_delay > 0:
@@ -147,37 +142,68 @@ class SerialHandler:
                     self.on_error(e)
                 break
     
-    def _handle_frame(self, frame: Frame):
+    def _handle_raw_frame(self, raw_frame_bytes: bytes):
         """
-        Internal frame handler that decrypts payload if needed, then calls user callback.
-        Automatically decrypts payload if protocol state >= 0x22.
+        Handle raw frame bytes from parser.
+        Decrypts if needed, then parses and delivers to user callback.
         """
-        # Decrypt payload if crypto is enabled and should decrypt
+        # Decrypt frame if encryption is enabled
         if self.crypto and self.crypto.should_encrypt():
             try:
-                decrypted_payload = self.crypto.decrypt_payload(frame.payload)
-                # Create new frame with decrypted payload
-                frame = Frame(msg_type=frame.msg_type, payload=decrypted_payload)
+                frame_bytes = self.crypto.decrypt_payload(raw_frame_bytes)
             except Exception as e:
-                print(f"[SERIAL DECRYPT ERROR] {e}")
-                import traceback
-                traceback.print_exc()
                 if self.on_error:
                     self.on_error(ValueError(f"Decryption failed: {e}"))
                 return
+        else:
+            frame_bytes = raw_frame_bytes
         
-        # Call user callback with (possibly decrypted) frame
+        # Parse frame: Type(1) + Length(2) + Payload(N) + Checksum(1)
+        if len(frame_bytes) < 4:
+            if self.on_error:
+                self.on_error(ValueError(f"Frame too short: {len(frame_bytes)} bytes"))
+            return
+        
+        # Extract frame components
+        msg_type_byte = frame_bytes[0]
+        payload_len = (frame_bytes[1] << 8) | frame_bytes[2]
+        received_checksum = frame_bytes[-1]
+        
+        # Verify length
+        actual_payload_len = len(frame_bytes) - 4
+        if payload_len != actual_payload_len:
+            if self.on_error:
+                self.on_error(ValueError(f"Length mismatch: header={payload_len}, actual={actual_payload_len}"))
+            return
+        
+        # Verify checksum
+        calculated_checksum = sum(frame_bytes[:-1]) & 0xFF
+        if calculated_checksum != received_checksum:
+            if self.on_error:
+                self.on_error(ValueError(f"Checksum error: expected {calculated_checksum}, got {received_checksum}"))
+            return
+        
+        # Extract payload and create frame
+        payload = frame_bytes[3:-1]
+        from .protocol import MessageType
+        try:
+            msg_type = MessageType(msg_type_byte)
+        except ValueError:
+            msg_type = msg_type_byte
+        
+        frame = Frame(msg_type=msg_type, payload=payload)
+        
         if self.on_frame:
             self.on_frame(frame)
     
     def send_frame(self, msg_type: int, payload: bytes = b'') -> bool:
         """
         Send a frame to the token with proper byte stuffing.
-        Automatically encrypts payload if protocol state >= 0x22.
+        Encrypts frame if protocol state requires it.
         
         Args:
             msg_type: Message type byte
-            payload: PLAINTEXT payload bytes (will be encrypted automatically if needed)
+            payload: Payload bytes
             
         Returns:
             True if sent successfully
@@ -188,14 +214,6 @@ class SerialHandler:
         from .protocol import SOF_BYTE, EOF_BYTE, ESC_BYTE, ESC_SUB_SOF, ESC_SUB_EOF, ESC_SUB_ESC
         
         try:
-            # Automatically encrypt payload if crypto handler is available and should encrypt
-            if self.crypto and self.crypto.should_encrypt():
-                encrypted_payload = self.crypto.encrypt_payload(payload)
-                if encrypted_payload is None:
-                    # Encryption failed - this is a critical error when encryption is required
-                    raise ValueError("Encryption required but failed")
-                payload = encrypted_payload
-            
             # Build frame: Type(1) + Length(2) + Payload(N) + Checksum(1)
             payload_len = len(payload)
             frame_data = bytearray()
@@ -207,6 +225,13 @@ class SerialHandler:
             # Calculate checksum
             checksum = sum(frame_data) & 0xFF
             frame_data.append(checksum)
+            
+            # Encrypt frame if encryption is enabled
+            if self.crypto and self.crypto.should_encrypt():
+                encrypted_frame = self.crypto.encrypt_payload(bytes(frame_data))
+                if encrypted_frame is None:
+                    raise ValueError("Encryption required but failed")
+                frame_data = bytearray(encrypted_frame)
             
             # Helper to send byte-stuffed data
             def send_stuffed(byte_val):

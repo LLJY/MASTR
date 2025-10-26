@@ -150,13 +150,10 @@ class MASTRHost:
     def on_frame_received(self, frame: Frame):
         """
         Main frame handler - routes frames to appropriate handlers.
-        
-        Note: Frames are already decrypted by the serial layer if protocol state >= 0x22.
-        The serial layer handles encryption/decryption transparently.
+        Frames are already decrypted by the serial layer.
         """
         self.frame_count += 1
         
-        # Payload is already decrypted by serial layer
         payload = frame.payload
         
         # Handle debug messages
@@ -199,7 +196,7 @@ class MASTRHost:
     # ========================================================================
     
     def _handle_debug_message(self, payload: bytes):
-        """Handle debug messages from token (already decrypted by serial layer if needed)"""
+        """Handle debug messages from token"""
         try:
             debug_text = payload.decode('utf-8', errors='replace')
             print(f"{Colors.ORANGE}[TOKEN DEBUG]{Colors.RESET} {debug_text}", end='')

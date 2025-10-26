@@ -184,39 +184,56 @@ void process_serial_data()
 }
 
 static void process_complete_frame() {
-    // Frame must have at least 4 bytes: Type(1), Length(2), Checksum(1)
-    if (frame_len < 4) {
-        // TODO NACK
-        return; // Invalid frame
-    }
-
     // Decrypt frame if protocol state requires it
-    // The decrypt_frame_if_needed function checks the protocol state and
-    // either decrypts the payload or passes it through unchanged
-    uint8_t decrypted_payload[MAX_PAYLOAD_SIZE];
+    uint8_t decrypted_frame[MAX_PAYLOAD_SIZE + 4];
     uint16_t decrypted_len = 0;
     
-    if (!decrypt_frame_if_needed(frame_buffer, frame_len, decrypted_payload, &decrypted_len)) {
-        print_dbg("CRYPTO ERROR: Failed to process frame encryption\n");
+    if (!decrypt_frame_if_needed(frame_buffer, frame_len, decrypted_frame, &decrypted_len)) {
+        print_dbg("CRYPTO ERROR: Failed to decrypt frame\n");
         send_shutdown_signal();
         return;
     }
     
-    // Extract message type and validate frame structure
-    message_type_t received_msg_type = frame_buffer[0];
+    // Frame must have at least 4 bytes: Type(1), Length(2), Checksum(1)
+    if (decrypted_len < 4) {
+        print_dbg("FRAME ERROR: Frame too short (%d bytes)\n", decrypted_len);
+        send_shutdown_signal();
+        return;
+    }
     
-    // Get the original encrypted length from the frame for checksum validation
-    uint16_t frame_payload_len = ((uint16_t)frame_buffer[1] << 8) | frame_buffer[2];
-
-    // get the checksum, which is the last bit.
-    uint8_t received_checksum = frame_buffer[frame_len - 1];
+    // Extract message type
+    message_type_t received_msg_type = decrypted_frame[0];
+    
+    /**
+     * Explaining the byte receiving magic.
+     *
+     * In order to combine two bytes into a 16bit number you have to do some magic.
+     *
+     * Assuming 2 numbers to represent high (MSB) 10101010 and low (LSB) 01010101
+     *
+     * EXTRACTING THE UPPER 8 BITS:
+     * Cast the first byte to uint16_t and shift left 8 bits
+     * 0000000010101010 << 8 = 1010101000000000
+     *
+     * EXTRACTING THE LOWER 8 BITS:
+     * Cast the second byte to uint16_t (no shift needed)
+     * 0000000001010101
+     *
+     * COMBINING:
+     * OR them together: 1010101000000000 | 0000000001010101 = 1010101001010101
+     */
+    uint16_t payload_len = ((uint16_t)decrypted_frame[1] << 8) | decrypted_frame[2];
+    
+    // Extract checksum (last byte)
+    uint8_t received_checksum = decrypted_frame[decrypted_len - 1];
     
     // verify packet length consistency
     // The actual payload length is the total frame length minus the header and checksum bytes
-    if (frame_payload_len != (frame_len - 4)) {
-        print_dbg("FRAME ERROR: Length mismatch. Header says %d, actual is %d", 
-                  frame_payload_len, frame_len - 4);
-        send_shutdown_signal(); // Protocol error
+    uint16_t actual_payload_len = decrypted_len - 4;
+    if (payload_len != actual_payload_len) {
+        print_dbg("FRAME ERROR: Length mismatch. Header says %d, actual is %d\n",
+                  payload_len, actual_payload_len);
+        send_shutdown_signal();
         return;
     }
     
@@ -224,22 +241,24 @@ static void process_complete_frame() {
     // since unsigned overflows are defined behaviour in C standards. We can safely do this.
     // most importantly it must produce a consistent result, which it does.
     uint8_t calculated_checksum = 0;
-    for (uint16_t i = 0; i < frame_len - 1; i++) { // Checksum over everything EXCEPT the checksum byte itself
-        calculated_checksum += frame_buffer[i];
+    for (uint16_t i = 0; i < decrypted_len - 1; i++) {
+        calculated_checksum += decrypted_frame[i];
     }
     
     if (calculated_checksum != received_checksum) {
-        print_dbg("CHECKSUM ERROR: Expected %d, got %d", 
+        print_dbg("CHECKSUM ERROR: Expected %d, got %d\n",
                   calculated_checksum, received_checksum);
-        send_shutdown_signal(); // Integrity error
+        send_shutdown_signal();
         return;
     }
 
-    // DEBUG: Frame validated successfully
-    print_dbg("Frame validated: type=0x%02X, payload_len=%d\n", received_msg_type, decrypted_len);
+    print_dbg("Frame validated: type=0x%02X, payload_len=%d\n", received_msg_type, payload_len);
     
-    // Pass the DECRYPTED payload to the handler
-    handle_validated_message(received_msg_type, decrypted_payload, decrypted_len);
+    // Extract payload
+    uint8_t *payload = &decrypted_frame[3];
+    
+    // Pass the payload to the handler
+    handle_validated_message(received_msg_type, payload, payload_len);
 }
 
 static void send_stuffed_byte(uint8_t c) {
@@ -265,79 +284,82 @@ static void send_stuffed_byte(uint8_t c) {
 // REVISED send_message function
 void send_message(uint8_t msg_type, uint8_t *payload, uint16_t len)
 {
-    // Encrypt the payload if protocol state requires it
-    uint8_t encrypted_payload[MAX_PAYLOAD_SIZE + ENCRYPTION_OVERHEAD];
+    // Build frame: Type(1) + Length(2) + Payload(N) + Checksum(1)
+    uint8_t frame_buffer[MAX_PAYLOAD_SIZE + 4];
+    uint16_t frame_len = 0;
+    
+    // Type
+    frame_buffer[frame_len++] = msg_type;
+    
+    /**
+     * Explaining the byte sending magic.
+     *
+     * In order to split a 16bit number into two bytes over serial 2*8 bit you have to do some magic to split
+     * then combine them later.
+     *
+     * assuming 2 numbers to represent high (MSB) 10101010 and low (LSB) 01010101
+     * 1010101001010101
+     *
+     * EXTRACTING THE UPPER 8 BITS:
+     * bitshift right 8 bits to carve out the MSB.
+     * 0000000010101010
+     *
+     * AND with 11111111 mask, to ensure you ONLY get the lower 8 bits.
+     * Cast to 8 bit -> 10101010
+     *
+     * EXTRACTING THE LOWER 8 BITS:
+     * this is much simpler, no need to bitshift. Just do & 0xFF and cast.
+     *
+     */
+    frame_buffer[frame_len++] = (len >> 8) & 0xFF;  // Length MSB
+    frame_buffer[frame_len++] = len & 0xFF;          // Length LSB
+    
+    // Payload
+    for (uint16_t i = 0; i < len; i++) {
+        frame_buffer[frame_len++] = payload[i];
+    }
+    
+    // Checksum
+    uint8_t checksum = 0;
+    for (uint16_t i = 0; i < frame_len; i++) {
+        checksum += frame_buffer[i];
+    }
+    frame_buffer[frame_len++] = checksum;
+    
+    // Encrypt frame if protocol state requires it
+    uint8_t encrypted_frame[MAX_PAYLOAD_SIZE + 4 + ENCRYPTION_OVERHEAD];
     uint16_t encrypted_len = 0;
     
-    if (!encrypt_frame_if_needed(msg_type, payload, len, encrypted_payload, &encrypted_len)) {
+    if (!encrypt_frame_if_needed(msg_type, frame_buffer, frame_len, encrypted_frame, &encrypted_len)) {
         print_dbg("CRYPTO ERROR: Failed to encrypt outgoing frame\n");
         return;
     }
     
-    // Now send the encrypted payload (or passthrough if not encrypted)
-    uint8_t* payload_to_send = encrypted_payload;
+    // Send the frame (encrypted or plaintext)
+    uint8_t* frame_to_send = encrypted_frame;
     uint16_t len_to_send = encrypted_len;
 
     // The required buffer space is harder to predict due to stuffing.
     // A safe estimate is double the packet size, plus frame bytes.
-    uint32_t required_space = (5 + len_to_send) * 2;
+    uint32_t required_space = (2 + len_to_send) * 2;
     if (tud_cdc_write_available() < required_space)
     {
         tud_cdc_write_flush();
     }
 
-    uint8_t checksum = 0;
-
-    // 1. Send Start of Frame (un-stuffed)
+    // Send Start of Frame (un-stuffed)
     tud_cdc_write_char(SOF_BYTE);
 
-    // 2. Send Message Type (stuffed)
-    send_stuffed_byte(msg_type);
-    checksum += msg_type;
-
-    // 3. Send Length (stuffed)
-
-    /**
-     * Explaining the byte sending magic.
-     * 
-     * In order to split a 16bit number into two bytes over serial 2*8 bit you have to do some magic to split
-     * then combine them later.
-     * 
-     * assuming 2 numbers to represent high (MSB) 10101010 and low (LSB) 010101
-     * 1010101001010101
-     * 
-     * EXTRACTING THE UPPER 8 BITS:
-     * bitshift right 8 bits to carve out the MSB.
-     * 0000000010101010
-     * 
-     * AND with 11111111 mask, to ensure you ONLY get the lower 8 bits.
-     * Cast to 8 bit -> 10101010
-     * 
-     * EXTRACTING THE LOWER 8 BITS:
-     * this is much simpler, no need to bitshift. Just do & 0xFF and cast.
-     * 
-     */
-    uint8_t len_high = (len_to_send >> 8) & 0xFF;
-    uint8_t len_low = len_to_send & 0xFF;
-    send_stuffed_byte(len_high);
-    send_stuffed_byte(len_low);
-    checksum += len_high;
-    checksum += len_low;
-
-    // 4. Send the Payload (stuffed) - now using encrypted payload
+    // Send frame data (stuffed)
     for (uint16_t i = 0; i < len_to_send; i++)
     {
-        send_stuffed_byte(payload_to_send[i]);
-        checksum += payload_to_send[i];
+        send_stuffed_byte(frame_to_send[i]);
     }
 
-    // 5. Send the final Checksum (stuffed)
-    send_stuffed_byte(checksum);
-
-    // 6. Send End of Frame (un-stuffed)
+    // Send End of Frame (un-stuffed)
     tud_cdc_write_char(EOF_BYTE);
 
-    // 7. CRITICAL: Flush the buffer to send the packet now.
+    // CRITICAL: Flush the buffer to send the packet now.
     tud_cdc_write_flush();
 }
 

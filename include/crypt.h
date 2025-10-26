@@ -74,41 +74,41 @@ bool aes_gcm_decrypt(
 
 /**
  * @brief Decrypt a frame if the protocol state requires it
- * 
+ *
  * Checks current_state in protocol_state to determine if decryption is needed.
  * If state >= 0x22 (after channel verification), decrypts the frame.
- * 
- * @param frame_buffer Buffer containing [Type][Length_H][Length_L][Payload...][Checksum]
- * @param frame_len Current frame length
- * @param decrypted_payload_out Output buffer for decrypted payload
- * @param decrypted_len_out Length of decrypted payload
+ *
+ * @param frame_buffer Buffer containing frame bytes (encrypted or plaintext)
+ * @param frame_len Frame length
+ * @param decrypted_frame_out Output buffer for decrypted frame
+ * @param decrypted_len_out Length of decrypted frame
  * @return true if processing successful (decrypted or passthrough), false on error
  */
 bool decrypt_frame_if_needed(
     uint8_t* frame_buffer,
     uint16_t frame_len,
-    uint8_t* decrypted_payload_out,
+    uint8_t* decrypted_frame_out,
     uint16_t* decrypted_len_out
 );
 
 /**
  * @brief Encrypt a frame if the protocol state requires it
- * 
+ *
  * Checks current_state in protocol_state to determine if encryption is needed.
- * If state >= 0x22 (after channel verification), encrypts the payload.
- * 
- * @param msg_type Message type
- * @param payload Plaintext payload
- * @param payload_len Length of plaintext payload
- * @param encrypted_payload_out Output buffer for encrypted payload
- * @param encrypted_len_out Length of encrypted payload
+ * If state >= 0x22 (after channel verification), encrypts the frame.
+ *
+ * @param msg_type Message type (unused, kept for API compatibility)
+ * @param frame Complete frame bytes
+ * @param frame_len Frame length
+ * @param encrypted_frame_out Output buffer for encrypted frame
+ * @param encrypted_len_out Length of encrypted output
  * @return true if processing successful (encrypted or passthrough), false on error
  */
 bool encrypt_frame_if_needed(
     uint8_t msg_type,
-    const uint8_t* payload,
-    uint16_t payload_len,
-    uint8_t* encrypted_payload_out,
+    const uint8_t* frame,
+    uint16_t frame_len,
+    uint8_t* encrypted_frame_out,
     uint16_t* encrypted_len_out
 );
 

@@ -198,69 +198,61 @@ bool aes_gcm_decrypt(
 }
 
 /**
- * Decrypts frame payload if protocol state requires it (state >= 0x22).
- * For unencrypted states, passes payload through unchanged.
- * 
+ * Decrypts frame if protocol state requires it (state >= 0x22).
+ * For unencrypted states, passes frame through unchanged.
+ *
  * @return true if processing succeeded, false on decryption failure
  */
 bool decrypt_frame_if_needed(
     uint8_t* frame_buffer,
     uint16_t frame_len,
-    uint8_t* decrypted_payload_out,
+    uint8_t* decrypted_frame_out,
     uint16_t* decrypted_len_out
 ) {
-    if (frame_len < 4) {
-        return false; // Invalid frame
-    }
-    
-    message_type_t msg_type = frame_buffer[0];
-    uint16_t payload_len = ((uint16_t)frame_buffer[1] << 8) | frame_buffer[2];
-    uint8_t* payload = &frame_buffer[3];
-    
     extern protocol_state_t protocol_state;
     
     bool should_decrypt = (protocol_state.current_state >= 0x22);
     
     if (should_decrypt) {
-        if (!aes_gcm_decrypt(payload, payload_len, protocol_state.aes_session_key,
-                            decrypted_payload_out, decrypted_len_out)) {
-            memcpy(decrypted_payload_out, payload, payload_len);
-            *decrypted_len_out = payload_len;
+        if (!aes_gcm_decrypt(frame_buffer, frame_len, protocol_state.aes_session_key,
+                            decrypted_frame_out, decrypted_len_out)) {
             return false;
         }
     } else {
-        memcpy(decrypted_payload_out, payload, payload_len);
-        *decrypted_len_out = payload_len;
+        memcpy(decrypted_frame_out, frame_buffer, frame_len);
+        *decrypted_len_out = frame_len;
     }
     
     return true;
 }
 
 /**
- * Encrypts frame payload if protocol state requires it (state >= 0x22).
- * For unencrypted states, passes payload through unchanged.
- * 
+ * Encrypts frame if protocol state requires it (state >= 0x22).
+ * For unencrypted states, passes frame through unchanged.
+ *
  * @return true if processing succeeded, false on encryption failure
  */
 bool encrypt_frame_if_needed(
     uint8_t msg_type,
-    const uint8_t* payload,
-    uint16_t payload_len,
-    uint8_t* encrypted_payload_out,
+    const uint8_t* frame,
+    uint16_t frame_len,
+    uint8_t* encrypted_frame_out,
     uint16_t* encrypted_len_out
 ) {
+    (void)msg_type;  // Unused in this implementation
+    
     extern protocol_state_t protocol_state;
     
     bool should_encrypt = (protocol_state.current_state >= 0x22);
     
     if (should_encrypt) {
-        if (!aes_gcm_encrypt(payload, payload_len, protocol_state.aes_session_key,
-                            encrypted_payload_out, encrypted_len_out)) {
+        if (!aes_gcm_encrypt(frame, frame_len, protocol_state.aes_session_key,
+                            encrypted_frame_out, encrypted_len_out)) {
             return false;
         }
     } else {
-        memcpy(encrypted_payload_out, payload, payload_len);
-        *encrypted_len_out = payload_len;
+        memcpy(encrypted_frame_out, frame, frame_len);
+        *encrypted_len_out = frame_len;
     }
     
     return true;

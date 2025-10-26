@@ -33,12 +33,12 @@ class FrameParser:
     Handles byte-stuffing and frame boundaries.
     """
     
-    def __init__(self, on_frame: Optional[Callable[[Frame], None]] = None):
+    def __init__(self, on_frame: Optional[Callable[[bytes], None]] = None):
         """
         Initialize the frame parser.
         
         Args:
-            on_frame: Optional callback called when a complete frame is received
+            on_frame: Callback called when a complete frame is received
         """
         self.on_frame = on_frame
         self._reset()
@@ -49,7 +49,7 @@ class FrameParser:
         self._in_escape = False
         self._frame_buffer = bytearray()
     
-    def feed_byte(self, byte: int) -> Optional[Frame]:
+    def feed_byte(self, byte: int) -> Optional[bytes]:
         """
         Feed a single byte to the parser.
         
@@ -57,7 +57,7 @@ class FrameParser:
             byte: Byte value (0-255)
             
         Returns:
-            Frame if a complete frame was parsed, None otherwise
+            Frame bytes if complete, None otherwise
             
         Raises:
             ProtocolError: If an invalid escape sequence is encountered
@@ -93,15 +93,11 @@ class FrameParser:
             # End of frame - process if we were in a frame
             if self._in_frame:
                 self._in_frame = False
-                try:
-                    frame = self._process_frame()
-                    if self.on_frame and frame:
-                        self.on_frame(frame)
-                    return frame
-                except FrameParserError:
-                    raise
-                finally:
-                    self._reset()
+                frame_bytes = bytes(self._frame_buffer)
+                self._reset()
+                if self.on_frame:
+                    self.on_frame(frame_bytes)
+                return frame_bytes
             return None
         
         elif byte == ESC_BYTE:
@@ -115,7 +111,7 @@ class FrameParser:
                 self._frame_buffer.append(byte)
             return None
     
-    def feed(self, data: bytes) -> list[Frame]:
+    def feed(self, data: bytes) -> list[bytes]:
         """
         Feed multiple bytes to the parser.
         
@@ -127,56 +123,7 @@ class FrameParser:
         """
         frames = []
         for byte in data:
-            frame = self.feed_byte(byte)
-            if frame:
-                frames.append(frame)
+            frame_bytes = self.feed_byte(byte)
+            if frame_bytes:
+                frames.append(frame_bytes)
         return frames
-    
-    def _process_frame(self) -> Optional[Frame]:
-        """
-        Process a complete frame buffer.
-        
-        Returns:
-            Parsed Frame object
-            
-        Raises:
-            FrameParserError: If frame is invalid
-        """
-        # Frame must have at least 4 bytes: Type(1), Length(2), Checksum(1)
-        if len(self._frame_buffer) < 4:
-            raise FrameParserError(f"Frame too short ({len(self._frame_buffer)} bytes)")
-        
-        # Extract message type
-        msg_type_byte = self._frame_buffer[0]
-        
-        # Extract payload length (big-endian)
-        payload_len = (self._frame_buffer[1] << 8) | self._frame_buffer[2]
-        
-        # Extract checksum (last byte)
-        received_checksum = self._frame_buffer[-1]
-        
-        # Verify length consistency
-        actual_payload_len = len(self._frame_buffer) - 4
-        if payload_len != actual_payload_len:
-            raise FrameParserError(
-                f"Length mismatch: header says {payload_len}, actual is {actual_payload_len}"
-            )
-        
-        # Verify checksum
-        calculated_checksum = sum(self._frame_buffer[:-1]) & 0xFF
-        if calculated_checksum != received_checksum:
-            raise ChecksumError(
-                f"Checksum mismatch: expected {calculated_checksum}, got {received_checksum}"
-            )
-        
-        # Extract payload
-        payload = bytes(self._frame_buffer[3:-1])
-        
-        # Create frame
-        try:
-            msg_type = MessageType(msg_type_byte)
-        except ValueError:
-            # Unknown message type - still create frame but with raw value
-            msg_type = msg_type_byte
-        
-        return Frame(msg_type=msg_type, payload=payload)
