@@ -24,5 +24,6 @@ void hal_delay_us(uint32_t delay);
 void hal_delay_ms(uint32_t delay);
 void* hal_malloc(size_t size);
 void hal_free(void* ptr);
+void pico_delay_ms(uint32_t ms);
 
 #endif // HAL_PICO_I2C_H

@@ -12,6 +12,8 @@
 #include "hal_pico_i2c.h"
 #include "atca_device.h"
 #include "calib_command.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 #define I2C_SDA_PIN 0
 #define I2C_SCL_PIN 1
@@ -31,7 +33,26 @@ uint32_t exec_max_time_ms(ATCADeviceType device_type)
 
 void pico_delay_ms(uint32_t ms)
 {
-    sleep_ms(ms);
+    if (ms == 0)
+    {
+        return;
+    }
+
+    // Calculate the number of ticks required for the delay
+    TickType_t ticks_to_wait = pdMS_TO_TICKS(ms);
+
+    if (ticks_to_wait == 0)
+    {
+        // The requested delay is less than one RTOS tick.
+        // We MUST use a busy-wait to guarantee the delay.
+        sleep_ms(ms);
+    }
+    else
+    {
+        // The delay is long enough to use the RTOS scheduler.
+        // This blocks the *task* (cooperatively) but not the *CPU*.
+        vTaskDelay(ticks_to_wait);
+    }
 }
 
 void pico_delay_us(uint32_t us)
@@ -52,7 +73,7 @@ void hal_free(void* ptr)
 
 void hal_delay_ms(uint32_t ms)
 {
-    sleep_ms(ms);
+    pico_delay_ms(ms);
 }
 
 void hal_delay_us(uint32_t us)
