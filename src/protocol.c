@@ -2,6 +2,7 @@
 #include "serial.h"
 #include "crypt.h"
 #include "pico/rand.h"
+#include "hal/hal_pico_i2c.h"
 #ifndef UNIT_TEST
 #include "cryptoauthlib.h"
 #endif
@@ -125,7 +126,7 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                 
                 protocol_state.current_state = 0x21;
                 
-                sleep_ms(1000);
+                pico_delay_ms(1000);
                 send_channel_verification_challenge();
             }
             #endif
