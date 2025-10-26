@@ -33,7 +33,7 @@ class FrameParser:
     Handles byte-stuffing and frame boundaries.
     """
     
-    def __init__(self, on_frame: Optional[Callable[[bytes], None]] = None):
+    def __init__(self, on_frame: Optional[Callable[[bytes], None]] = None) -> None:
         """
         Initialize the frame parser.
         
@@ -43,7 +43,7 @@ class FrameParser:
         self.on_frame = on_frame
         self._reset()
     
-    def _reset(self):
+    def _reset(self) -> None:
         """Reset parser state"""
         self._in_frame = False
         self._in_escape = False

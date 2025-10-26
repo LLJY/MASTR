@@ -24,7 +24,7 @@ class SerialHandler:
         on_error: Optional[Callable[[Exception], None]] = None,
         on_raw_data: Optional[Callable[[bytes], None]] = None,
         crypto_handler: Optional[object] = None
-    ):
+    ) -> None:
         """
         Initialize the serial handler.
         
@@ -80,14 +80,14 @@ class SerialHandler:
         
         return False
     
-    def disconnect(self):
+    def disconnect(self) -> None:
         """Disconnect from the serial port"""
         self.stop()
         if self._serial and self._serial.is_open:
             self._serial.close()
         self._serial = None
     
-    def start(self):
+    def start(self) -> None:
         """Start the background reading thread"""
         if self._running:
             return
@@ -99,14 +99,14 @@ class SerialHandler:
         self._thread = threading.Thread(target=self._read_loop, daemon=True)
         self._thread.start()
     
-    def stop(self):
+    def stop(self) -> None:
         """Stop the background reading thread"""
         self._running = False
         if self._thread:
             self._thread.join(timeout=2.0)
             self._thread = None
     
-    def _read_loop(self):
+    def _read_loop(self) -> None:
         """Background thread that continuously reads from serial port"""
         import time
         
@@ -142,7 +142,7 @@ class SerialHandler:
                     self.on_error(e)
                 break
     
-    def _handle_raw_frame(self, raw_frame_bytes: bytes):
+    def _handle_raw_frame(self, raw_frame_bytes: bytes) -> None:
         """
         Handle raw frame bytes from parser.
         Decrypts if needed, then parses and delivers to user callback.

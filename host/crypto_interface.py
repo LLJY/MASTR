@@ -21,7 +21,7 @@ class CryptoInterface(ABC):
     - AES-GCM encryption/decryption
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize crypto implementation"""
         self.session_key: Optional[bytes] = None
         self._should_encrypt: bool = False  # Controlled externally by protocol state
@@ -148,7 +148,7 @@ class CryptoInterface(ABC):
     # Session Key Management
     # ========================================================================
     
-    def set_session_key(self, key: bytes):
+    def set_session_key(self, key: bytes) -> None:
         """
         Set the session key (from ECDH derivation).
         
@@ -172,7 +172,7 @@ class CryptoInterface(ABC):
     # Protocol State
     # ========================================================================
     
-    def set_encryption_enabled(self, enabled: bool):
+    def set_encryption_enabled(self, enabled: bool) -> None:
         """
         Enable or disable encryption.
         Called by protocol layer when state changes.

@@ -1,321 +1,648 @@
-# MASTR Python Codebase Structure# MASTR Host Communication Library
+# MASTR Host - Python Implementation
 
+> **Production-ready** Python host for MASTR protocol communication with hardware security tokens.
 
+[![Protocol](https://img.shields.io/badge/Protocol-MASTR-blue)](../docs/)
+[![Python](https://img.shields.io/badge/Python-3.8+-green)](https://www.python.org/)
+[![Status](https://img.shields.io/badge/Status-Active-success)]()
 
-## Overview**Reference implementation** for communicating with the MASTR Token device over serial (USB CDC).
+---
 
+## 📋 Table of Contents
 
+- [Overview](#-overview)
+- [Quick Start](#-quick-start)
+- [Installation](#-installation)
+- [Usage](#-usage)
+- [Protocol Phases](#-protocol-phases)
+- [Architecture](#-architecture)
+- [Development](#-development)
+- [Troubleshooting](#-troubleshooting)
 
-The Python codebase has been reorganized for clarity:## Overview
+---
 
+## 🎯 Overview
 
+The MASTR Host implements a secure communication protocol between a host computer and a hardware security token (RP2040 + ATECC608A). It provides:
 
-- **`host/`** - Production code and demosThe MASTR protocol enables secure communication between a host system and a hardware security token (RP2040 + ATECC608A). This Python library implements:
+### **Features**
+✅ **Mutual Authentication** via ECDH key exchange  
+✅ **AES-128-GCM Encryption** for all communications  
+✅ **Integrity Verification** with cryptographic attestation  
+✅ **Pluggable Crypto Backends** (File-based or TPM2)  
+✅ **Automatic Key Provisioning** for first-time setup  
+✅ **Clean Logging** with color-coded output  
+✅ **Type-Safe** with comprehensive type hints  
 
-- **Root test files** - Backward compatibility wrappers
+### **Security Guarantee**
+- Permanent keys use **P-256 ECDSA**
+- Session keys derived via **HKDF-SHA256**
+- All data encrypted with **AES-128-GCM**
+- Hardware RNG for IV generation
+- Firmware integrity attestation
 
-- **Protocol Parser**: Byte-stuffing frame parser with checksum validation
+---
 
-## File Organization- **Serial Handler**: Robust serial communication with auto-reconnection
+## 🚀 Quick Start
 
-- **Message Types**: Complete enumeration of all protocol messages
-
-### Production Code- **Test Application**: Interactive command-line tool for testing
-
-- **`host/main.py`** - Production protocol implementation (stub for future development)
-
-- **`host/protocol.py`** - Message type definitions and frame handling## Features
-
-- **`host/crypto.py`** - AES-GCM encryption and ECDH key derivation
-
-- **`host/serial_handler.py`** - Serial communication with automatic reconnection- **Protocol Parsing**: Handles byte-stuffing, frame boundaries, and checksum verification
-
-- **`host/parser.py`** - Frame parsing and validation- **Debug Message Support**: Automatically detects and displays DEBUG messages from the token
-
-- **Separation of Concerns**: Clean OOP architecture with distinct protocol, parser, and serial handler layers
-
-### Testing & Demos- **Real-time Display**: Shows received frames with hex dumps and decoded payloads
-
-- **`host/debug.py`** - Interactive debugger and testing tool ⭐- **Error Handling**: Comprehensive error reporting for protocol violations and checksum failures
-
-  - Key provisioning (generate/exchange permanent keys)- **Auto-reconnection**: Automatically reconnects when device is disconnected/reconnected
-
-  - Manual message sending for all protocol phases- **Interactive Commands**: Send test messages to the device
-
-  - Integrated ECDH demo launcher
-
-  ## Usage
-
-- **`host/mutual_auth_demo.py`** - Full ECDH mutual authentication demo ⭐
-
-  - Complete implementation of Phase 1 (mutual authentication)### As a Test Application
-
-  - Reference implementation for production code
-
-Run the interactive test receiver:
-
-### Legacy Compatibility
-
-- **`test_ecdh.py`** - Wrapper redirecting to `host/mutual_auth_demo.py````bash
-
-- **`test_crypto.py`** - Standalone encryption tests# Basic usage
-
-- **`test_debug_keys.py`** - Key provisioning helperpython -m host.main /dev/ttyACM0
-
-
-
-## Usage# With verbose output
-
-python -m host.main /dev/ttyACM0 -v
-
-### Interactive Debugger (Recommended)
-
-```bash# With raw byte debugging
-
-python -m host.debug /dev/ttyACM1python -m host.main /dev/ttyACM0 -d
-
-```
-
-# Custom baud rate
-
-Commands:python -m host.main /dev/ttyACM0 -b 115200
-
-- `provision` - Auto-generate keys and exchange with token
-
-- `gettoken` - Request token's permanent public key (saves to file)# On Windows
-
-- `genkeys` - Generate new host permanent keypairpython -m host.main COM3
-
-- `sethost` - Send host permanent public key to token```
-
-- `ecdh_demo` - Run full ECDH mutual authentication demo
-
-- `random` - Request hardware RNG output**Interactive Commands:**
-
-- `help` - Show all available commands- `r` - Request random number from ATECC608A
-
-- `q` - Quit application
-
-### Mutual Authentication Demo
-
-```bash### As a Library
-
-# Option 1: Direct
-
-python -m host.mutual_auth_demo```python
-
-from host.serial_handler import SerialHandler
-
-# Option 2: Through debug.pyfrom host.protocol import MessageType, Frame
-
-python -m host.debug /dev/ttyACM1
-
-# Then type: ecdh_demodef on_frame(frame: Frame):
-
-```    if frame.is_debug:
-
-        print(f"DEBUG: {frame.debug_text}")
-
-### Production Stub (Future Development)    else:
-
-```bash        print(f"Received: {frame.msg_type.name}, payload: {len(frame.payload)} bytes")
-
-python -m host.main /dev/ttyACM1
-
-```handler = SerialHandler(
-
-    port="/dev/ttyACM0",
-
-## Key Provisioning Workflow    baudrate=115200,
-
-    on_frame=on_frame
-
-### First-Time Setup)
+### First-Time Setup (Automatic Provisioning)
 
 ```bash
+# 1. Connect your MASTR token via USB
+# 2. Run with --provision flag
+python -m host.main /dev/ttyACM0 --provision
 
-# 1. Start debug toolhandler.connect()
-
-python -m host.debug /dev/ttyACM1handler.start()
-
-
-
-# 2. Auto-provision (generates host keys, requests token key, exchanges)# Send a message
-
-> provisionhandler.send_frame(MessageType.H2T_TEST_RANDOM_REQUEST)
-
-
-
-# This creates:# ... later ...
-
-#   - host_permanent_privkey.pem (private key, keep secret!)handler.stop()
-
-#   - host_permanent_pubkey.bin (64-byte raw public key)handler.disconnect()
-
-#   - token_permanent_pubkey.bin (64-byte raw public key from token)```
-
+# This will:
+#   ✓ Generate host keypair
+#   ✓ Exchange keys with token
+#   ✓ Set up golden hash for integrity checks
+#   ✓ Perform full authentication
 ```
 
-## Architecture
-
-## Security Notes
-
-### Components
-
-1. **Key Storage**: 
-
-   - `host_permanent_privkey.pem` contains your permanent private key1. **protocol.py**: Protocol definitions (message types, constants, frame structure)
-
-   - Keep this file secure - it's used for authentication2. **parser.py**: Stateful frame parser with byte-stuffing support
-
-3. **serial_handler.py**: Serial communication manager with background thread
-
-2. **Encryption**:4. **main.py**: Application entry point and frame display logic
-
-   - All POC/test encryption code has been removed
-
-   - Only ECDH-derived session keys are used## Protocol Details
-
-   - Random IVs generated via hardware RNG (Pico) and os.urandom() (host)
-
-### Frame Structure
-
-3. **State Machine**:
-
-   - Protocol enforces state transitions```
-
-   - Out-of-order messages are rejected[SOF] [Type] [Length_LSB] [Length_MSB] [Payload...] [Checksum] [EOF]
-
-   - Encryption only active after channel verification (state >= 0x22)```
-
-
-- **SOF**: Start of Frame (0x7F)
-- **Type**: Message type (1 byte)
-- **Length**: Payload length in bytes (2 bytes, little-endian)
-- **Payload**: Variable length (0-256 bytes)
-- **Checksum**: XOR of all bytes from Type to end of Payload (1 byte)
-- **EOF**: End of Frame (0x7E)
-
-### Byte Stuffing
-
-Special bytes are escaped during transmission:
-- `0x7F` (SOF) → `0x7D 0x5F`
-- `0x7E` (EOF) → `0x7D 0x5E`
-- `0x7D` (ESC) → `0x7D 0x5D`
-
-### Message Types
-
-#### Class 0: System Control (0x00-0x0F)
-- `T2H_ERROR (0x00)`: Error message from token
-- `T2H_NACK (0x01)`: Negative acknowledgment
-- `H2T_BOOT_OK_ACK (0x02)`: Host acknowledges boot authorization
-
-#### Phase 1: ECDH Key Exchange (0x20-0x2F)
-- `H2T_ECDH_SHARE (0x20)`: Host ephemeral public key
-- `T2H_ECDH_SHARE (0x21)`: Token ephemeral public key
-- `H2T_CHANNEL_VERIFY_REQUEST (0x22)`: Encrypted ping
-- `T2H_CHANNEL_VERIFY_RESPONSE (0x23)`: Encrypted pong
-
-#### Phase 2: Integrity Verification (0x30-0x3F)
-- `T2H_INTEGRITY_CHALLENGE (0x30)`: Challenge with nonce
-- `H2T_INTEGRITY_RESPONSE (0x31)`: Hash + signature response
-- `T2H_BOOT_OK (0x32)`: Integrity check passed
-- `T2H_INTEGRITY_FAIL_HALT (0x33)`: Integrity check failed
-
-#### Runtime: Heartbeat (0x40-0x4F)
-- `H2T_HEARTBEAT (0x40)`: Periodic heartbeat from host
-- `T2H_HEARTBEAT_ACK (0x41)`: Token acknowledges heartbeat
-
-#### Testing & Debug (0xFC-0xFE)
-- `DEBUG_MSG (0xFE)`: Debug text message (UTF-8 string)
-- `H2T_TEST_RANDOM_REQUEST (0xFD)`: Request random number
-- `T2H_TEST_RANDOM_RESPONSE (0xFC)`: Random number response (32 bytes)
-
-## Output Example
-
+**Output:**
 ```
-MASTR Host Receiver Test
-Waiting for device at /dev/ttyACM0 (will retry indefinitely)...
-Commands: 'r' = request random number, 'q' = quit
+============================================================
+MASTR Host - Production Protocol Implementation
+============================================================
+Port: /dev/ttyACM0
+Crypto: NaiveCrypto
 
-Connected to /dev/ttyACM0 at 115200 baud!
-Listening for frames...
+=== Connecting to Token ===
+✓ Connected to /dev/ttyACM0
 
-[DEBUG FROM PICO] Board info: RP2040, Serial: E66298B013579F3F
-[DEBUG FROM PICO] ATECC608A initialized successfully
+=== Phase 0: Key Loading ===
+[INFO] Provision mode: Regenerating keypair...
+✓ Generated new host keypair
 
-[Sending] H2T_TEST_RANDOM_REQUEST
-[Sent] Random number request sent successfully
+=== Auto-Provisioning Token Key ===
+...
+✓ Keys provisioned successfully!
 
-[DEBUG FROM PICO] Frame validated: type=0xFD, payload_len=0
-[DEBUG FROM PICO] Received message type: 0xFD, length: 0
-[DEBUG FROM PICO] Handler: H2T_TEST_RANDOM_REQUEST - Generating random number...
-[DEBUG FROM PICO] Generated 32 bytes of random data from ATECC608
+=== Phase 1: Mutual Authentication (ECDH) ===
+...
+✓ Session key: c8c2f188ffa06388c56ed44454b6309a
 
-[Frame #1]
-  Type: T2H_TEST_RANDOM_RESPONSE (0xFC)
-  Payload Length: 32 bytes
-  [VERIFICATION] Random data (for comparison):
-    4D 39 AC 2E 93 5A 8D A6 EE 51 E6 85 AA B5 55 F6 4E 89 CD 7C 31 1E BA 74 EF 42 B1 80 6E AC AA 11
-  Payload (hex):
-    0000: 4D 39 AC 2E 93 5A 8D A6 EE 51 E6 85 AA B5 55 F6  M9...Z...Q....U.
-    0010: 4E 89 CD 7C 31 1E BA 74 EF 42 B1 80 6E AC AA 11  N..|1..t.B..n...
+=== Channel Verification ===
+...
+✓ Pong sent
+
+============================================================
+✅ Secure channel established!
+============================================================
+
+=== Phase 2: Integrity Verification ===
+...
+✓ Token sent BOOT_OK - integrity verification passed!
+
+============================================================
+✅ Integrity verification complete!
+============================================================
 ```
 
-## Error Handling
+### Subsequent Runs (With Existing Keys)
 
-The library handles:
-- **Checksum errors**: Invalid frame checksums are rejected
-- **Protocol errors**: Malformed frames trigger parser reset
-- **Serial errors**: Auto-reconnection on disconnect
-- **Timeout errors**: Configurable connection retry logic
+```bash
+# Just run normally - keys are loaded from disk
+python -m host.main /dev/ttyACM0
+```
 
-## Testing
+---
 
-This receiver is designed for physical unit testing of the MASTR token device. It provides:
+## 📦 Installation
 
-- Colored output for different message types (success, error, debug, etc.)
-- Hex dump of binary payloads with ASCII preview
-- Frame counting and statistics
-- Raw byte debugging mode (`-d` flag)
+### Prerequisites
 
-## Development
+- **Python 3.8+**
+- **pySerial** for serial communication
+- **cryptography** library for crypto operations
 
-### Adding New Message Types
+### Install Dependencies
 
-1. Add to `protocol.py`:
+```bash
+# From project root
+cd host/
+pip install -r requirements.txt
+```
+
+**Or manually:**
+```bash
+pip install pyserial cryptography
+```
+
+### Platform-Specific Notes
+
+**Linux:**
+```bash
+# Add user to dialout group for serial access
+sudo usermod -a -G dialout $USER
+# Log out and back in for changes to take effect
+```
+
+**macOS:**
+```bash
+# No special setup needed
+# Devices appear as /dev/tty.usbmodemXXXX
+```
+
+**Windows:**
+```bash
+# Devices appear as COM3, COM4, etc.
+# No special setup needed
+```
+
+---
+
+## 💻 Usage
+
+### Command-Line Interface
+
+```bash
+python -m host.main <port> [options]
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `port` | Serial port (e.g., /dev/ttyACM0, COM3) | *Required* |
+| `-b, --baudrate` | Baud rate | 115200 |
+| `-v, --verbose` | Enable verbose output | False |
+| `--crypto` | Crypto backend: `naive` or `tpm2` | `naive` |
+| `--provision` | Auto-provision keys and golden hash | False |
+
+### Examples
+
+**Basic usage:**
+```bash
+python -m host.main /dev/ttyACM0
+```
+
+**Verbose mode:**
+```bash
+python -m host.main /dev/ttyACM0 -v
+```
+
+**Different baud rate:**
+```bash
+python -m host.main /dev/ttyACM0 -b 9600
+```
+
+**Windows:**
+```bash
+python -m host.main COM3
+```
+
+**With TPM2 backend (when implemented):**
+```bash
+python -m host.main /dev/ttyACM0 --crypto=tpm2
+```
+
+---
+
+## 🔄 Protocol Phases
+
+### Phase 0: Key Provisioning
+
+**Automatic** (with `--provision`):
+```bash
+python -m host.main /dev/ttyACM0 --provision
+```
+
+**Generates:**
+- `host_permanent_privkey.pem` - Host's private key (ECDSA, keep secret!)
+- `host_permanent_pubkey.bin` - Host's public key (64 bytes, X||Y)
+- `token_permanent_pubkey.bin` - Token's public key (64 bytes, X||Y)
+- `golden_hash.bin` - Expected firmware hash (32 bytes, SHA-256)
+
+**Manual** (existing keys):
+```bash
+python -m host.main /dev/ttyACM0
+```
+Loads keys from disk automatically.
+
+---
+
+### Phase 1: Mutual Authentication (ECDH)
+
+**What happens:**
+1. Host generates ephemeral P-256 keypair
+2. Host signs ephemeral pubkey with permanent key
+3. Host sends `H2T_ECDH_SHARE` (pubkey + signature)
+4. Token verifies signature, generates its own ephemeral keypair
+5. Token sends `T2H_ECDH_SHARE` (pubkey + signature)
+6. Both sides compute ECDH shared secret
+7. Both sides derive AES-128 session key via HKDF-SHA256
+8. **Encryption enabled** (state → 0x22)
+
+**Security:**
+- Mutual authentication prevents MITM attacks
+- Ephemeral keys provide forward secrecy
+- ECDSA signatures ensure authenticity
+
+---
+
+### Phase 1.5: Channel Verification
+
+**What happens:**
+1. Token sends encrypted "ping" challenge
+2. Host decrypts and verifies
+3. Host sends encrypted "pong" response
+4. Token verifies response
+5. **Channel established** (state → 0x24)
+
+**Purpose:**
+- Confirms both sides have same session key
+- Detects key derivation errors
+- Required before integrity verification
+
+---
+
+### Phase 2: Integrity Verification
+
+**What happens:**
+1. Token sends 4-byte random nonce (encrypted)
+2. Host loads golden hash from disk
+3. Host signs `(golden_hash || nonce)` with permanent key
+4. Host sends `H2T_INTEGRITY_RESPONSE` (hash + signature, encrypted)
+5. Token verifies signature and compares hash
+6. If valid: Token sends `T2H_BOOT_OK` (encrypted)
+7. Host acknowledges with `H2T_BOOT_OK_ACK`
+8. **Ready for operations** (state → 0x34)
+
+**Purpose:**
+- Proves host firmware integrity
+- Prevents unauthorized/modified hosts
+- Token enforces this before allowing operations
+
+---
+
+### Phase 3: Runtime Heartbeat (TODO)
+
+**Planned:**
+- Periodic encrypted heartbeats every 5 seconds
+- Detects disconnection or tampering
+- Automatic shutdown on timeout
+
+---
+
+## 🏗️ Architecture
+
+### File Structure
+
+```
+host/
+├── main.py                  # MASTRHost class - state machine
+├── logger.py                # Centralized logging
+├── crypto_interface.py      # Abstract crypto interface
+├── crypto.py                # NaiveCrypto implementation
+├── protocol.py              # Message type definitions
+├── serial_handler.py        # Serial communication
+├── parser.py                # Frame parsing
+├── ARCHITECTURE.md          # Detailed architecture docs
+└── README.md                # This file
+```
+
+### Component Diagram
+
+```
+┌──────────────┐
+│ main.py      │ ← Protocol state machine
+│ (MASTRHost)  │   Frame routing
+└──────┬───────┘
+       │
+   ┌───┴────────────────┐
+   │                    │
+┌──▼───────┐     ┌──────▼──────┐
+│logger.py │     │crypto_      │
+│          │     │interface.py │
+│Logger    │     │             │
+│methods   │     │NaiveCrypto  │
+└──────────┘     │TPM2Crypto   │
+                 └──────┬──────┘
+                        │
+                 ┌──────▼──────┐
+                 │serial_      │
+                 │handler.py   │
+                 │             │
+                 │Background   │
+                 │RX thread    │
+                 └──────┬──────┘
+                        │
+                 ┌──────▼──────┐
+                 │parser.py    │
+                 │             │
+                 │Frame        │
+                 │extraction   │
+                 └──────┬──────┘
+                        │
+                        ▼
+                  Serial Port
+```
+
+### Data Flow
+
+```
+User Command
+    │
+    ├──> MASTRHost.run()
+    │        │
+    │        ├──> Load/Generate Keys (Phase 0)
+    │        │        │
+    │        │        └──> CryptoInterface methods
+    │        │
+    │        ├──> ECDH Handshake (Phase 1)
+    │        │        │
+    │        │        ├──> SerialHandler.send_frame()
+    │        │        │        │
+    │        │        │        └──> Byte stuffing
+    │        │        │             Encryption
+    │        │        │             Serial TX
+    │        │        │
+    │        │        └──> Wait for response
+    │        │                 │
+    │        │                 └──> FrameParser
+    │        │                      on_frame_received()
+    │        │                      Route to handler
+    │        │
+    │        ├──> Channel Verify (Phase 1.5)
+    │        │
+    │        └──> Integrity Verify (Phase 2)
+    │
+    └──> Keep connection open
+```
+
+---
+
+## 🛠️ Development
+
+### Project Setup
+
+```bash
+# Clone repository
+git clone <repo-url>
+cd MASTR-NEW/host/
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run tests (if available)
+python -m pytest
+```
+
+### Adding a New Message Type
+
+**1. Define in [`protocol.py`](protocol.py):**
 ```python
 class MessageType(IntEnum):
-    MY_NEW_MESSAGE = 0xAB
+    H2T_MY_REQUEST = 0x60
+    T2H_MY_RESPONSE = 0x61
 ```
 
-2. Add to C header `include/protocol.h`:
-```c
-typedef enum {
-    // ... existing types ...
-    MY_NEW_MESSAGE = 0xAB,
-} message_type_t;
+**2. Add handler in [`main.py`](main.py):**
+```python
+def _handle_my_response(self, payload: bytes) -> None:
+    """Handle T2H_MY_RESPONSE"""
+    Logger.info(f"Got response: {payload.hex()}")
+    # Process...
 ```
 
-3. Add handler in `src/protocol.c`:
+**3. Register in `on_frame_received()`:**
+```python
+elif frame.msg_type == MessageType.T2H_MY_RESPONSE:
+    self._handle_my_response(payload)
+```
+
+**4. Implement token-side in C:**
 ```c
-case MY_NEW_MESSAGE:
-    // Handle message
+// In src/protocol.c
+case H2T_MY_REQUEST:
+    // Handle request
+    send_message(T2H_MY_RESPONSE, data, len);
     break;
 ```
 
-### Debugging
+### Creating a Custom Crypto Backend
 
-Enable raw byte output to see all serial data:
-```bash
-python -m host.main /dev/ttyACM0 -d
+**1. Implement [`CryptoInterface`](crypto_interface.py):**
+```python
+from host.crypto_interface import CryptoInterface
+
+class MyCustomCrypto(CryptoInterface):
+    def __init__(self) -> None:
+        super().__init__()
+        # Your initialization
+    
+    def load_permanent_keys(self) -> bool:
+        # Your implementation
+        pass
+    
+    # ... implement all abstract methods
 ```
 
-This shows:
-- All bytes received on the wire
-- Frame parsing details
-- Checksum validation results
+**2. Use your backend:**
+```python
+from host.crypto_mycustom import MyCustomCrypto
 
-## License
+host = MASTRHost(
+    port="/dev/ttyACM0",
+    crypto=MyCustomCrypto()
+)
+```
 
-See LICENSE.TXT in the project root.
+### Using the Logger
+
+```python
+from host.logger import Logger
+
+# Success messages (green checkmark)
+Logger.success("Operation completed")
+
+# Errors (red X)
+Logger.error("Operation failed")
+
+# Info (cyan)
+Logger.info("Processing...")
+
+# Warnings (yellow)
+Logger.warning("Deprecated feature")
+
+# Debug (orange)
+Logger.debug("TAG", "Debug message")
+
+# Sections (cyan header)
+Logger.section("Phase 1: Authentication")
+
+# Steps (numbered)
+Logger.step(1, "Generating keypair...")
+Logger.substep("Details about this step...")
+```
+
+---
+
+## 🔍 Troubleshooting
+
+### Common Issues
+
+#### "Failed to connect to /dev/ttyACM0"
+
+**Causes:**
+- Device not plugged in
+- Wrong port name
+- Permission denied (Linux)
+
+**Solutions:**
+```bash
+# Linux: Check devices
+ls -l /dev/ttyACM*
+ls -l /dev/ttyUSB*
+
+# Add user to dialout group
+sudo usermod -a -G dialout $USER
+# Log out and back in
+
+# macOS: Check devices
+ls -l /dev/tty.usbmodem*
+
+# Windows: Check Device Manager
+# Look under "Ports (COM & LPT)"
+```
+
+#### "Permanent keys not found"
+
+**Cause:** First-time run without `--provision`
+
+**Solution:**
+```bash
+python -m host.main /dev/ttyACM0 --provision
+```
+
+#### "Timeout waiting for T2H_ECDH_SHARE"
+
+**Causes:**
+- Token not responding
+- Token firmware issue
+- Wrong baud rate
+
+**Solutions:**
+```bash
+# Reset token (unplug/replug)
+# Try different baud rate
+python -m host.main /dev/ttyACM0 -b 9600
+
+# Check token is running correct firmware
+```
+
+#### "Signature verification failed"
+
+**Causes:**
+- Mismatched keys between host and token
+- Corrupted key files
+
+**Solutions:**
+```bash
+# Re-provision from scratch
+rm host_permanent_*.pem host_permanent_*.bin token_permanent_*.bin
+python -m host.main /dev/ttyACM0 --provision
+```
+
+#### "Golden hash file not found"
+
+**Cause:** Integrity verification requires golden hash
+
+**Solution:**
+```bash
+# Provision includes golden hash setup
+python -m host.main /dev/ttyACM0 --provision
+```
+
+---
+
+## 📊 Message Types Reference
+
+### System Control (0x00-0x0F)
+- `0x00: T2H_ERROR` - Error from token
+- `0x01: T2H_NACK` - Negative acknowledgment
+
+### Phase 1: ECDH (0x20-0x2F)
+- `0x20: H2T_ECDH_SHARE` - Host ephemeral pubkey + signature
+- `0x21: T2H_ECDH_SHARE` - Token ephemeral pubkey + signature
+- `0x22: T2H_CHANNEL_VERIFY_REQUEST` - Encrypted ping
+- `0x23: H2T_CHANNEL_VERIFY_RESPONSE` - Encrypted pong
+
+### Phase 2: Integrity (0x30-0x3F)
+- `0x30: T2H_INTEGRITY_CHALLENGE` - Nonce challenge
+- `0x31: H2T_INTEGRITY_RESPONSE` - Hash + signature
+- `0x32: T2H_BOOT_OK` - Integrity check passed
+- `0x33: T2H_INTEGRITY_FAIL_HALT` - Integrity check failed
+- `0x34: H2T_BOOT_OK_ACK` - Host acknowledges BOOT_OK
+
+### Phase 3: Runtime (0x40-0x4F)
+- `0x40: H2T_HEARTBEAT` - Periodic heartbeat
+- `0x41: T2H_HEARTBEAT_ACK` - Heartbeat acknowledgment
+
+### Debug (0xF9-0xFE)
+- `0xFE: DEBUG_MSG` - UTF-8 debug text
+- `0xFD: H2T_TEST_RANDOM_REQUEST` - Request random number
+- `0xFC: T2H_TEST_RANDOM_RESPONSE` - Random number (32 bytes)
+- `0xFB: H2T_DEBUG_SET_HOST_PUBKEY` - Set host public key
+- `0xFA: T2H_DEBUG_GET_TOKEN_PUBKEY` - Get token public key
+- `0xF9: H2T_DEBUG_SET_GOLDEN_HASH` - Set golden hash
+
+---
+
+## 📚 Additional Resources
+
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Detailed architecture documentation
+- **[Protocol Diagrams](../docs/)** - Visual protocol flow diagrams
+- **[C Implementation](../src/)** - Token-side firmware
+- **[Protocol Specification](../docs/INF2004_CS29_ProjectReport.md)** - Full protocol spec
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+**Code Style:**
+- Follow PEP 8
+- Use type hints
+- Add docstrings
+- Use Logger for output
+
+---
+
+## 📝 License
+
+See [LICENSE.TXT](../LICENSE.TXT) in project root.
+
+---
+
+## 🎯 Next Steps
+
+After successful setup, you can:
+
+1. **Integrate into your application:**
+   ```python
+   from host.main import MASTRHost
+   from host.crypto import NaiveCrypto
+   
+   host = MASTRHost(port="/dev/ttyACM0", crypto=NaiveCrypto())
+   exit_code = host.run()
+   ```
+
+2. **Implement custom message handlers** for your use case
+
+3. **Deploy to production** with TPM2 crypto backend (when available)
+
+4. **Add application-specific phases** after Phase 2
+
+---
+
+**Questions?** Check [ARCHITECTURE.md](ARCHITECTURE.md) for detailed technical information.
+
+**Last Updated:** 2024-10-26  
+**Version:** 2.0 (Post Phase 1 Cleanup)

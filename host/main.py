@@ -60,18 +60,7 @@ from .protocol import Frame, MessageType, get_message_name
 from .parser import FrameParserError, ChecksumError, ProtocolError
 from .crypto import NaiveCrypto
 from .crypto_interface import CryptoInterface
-
-
-# ANSI Color Codes
-class Colors:
-    """ANSI escape codes for terminal colors"""
-    RESET = '\033[0m'
-    ORANGE = '\033[38;5;214m'
-    GREEN = '\033[38;5;46m'
-    RED = '\033[38;5;196m'
-    YELLOW = '\033[38;5;208m'
-    CYAN = '\033[38;5;51m'
-    MAGENTA = '\033[38;5;201m'
+from .logger import Logger, Colors
 
 
 class MASTRHost:
@@ -195,24 +184,24 @@ class MASTRHost:
     # MESSAGE HANDLERS
     # ========================================================================
     
-    def _handle_debug_message(self, payload: bytes):
+    def _handle_debug_message(self, payload: bytes) -> None:
         """Handle debug messages from token"""
         try:
             debug_text = payload.decode('utf-8', errors='replace')
-            print(f"{Colors.ORANGE}[TOKEN DEBUG]{Colors.RESET} {debug_text}", end='')
+            Logger.debug("TOKEN DEBUG", debug_text.rstrip())
         except Exception:
-            print(f"{Colors.ORANGE}[TOKEN DEBUG]{Colors.RESET} (decode error): {payload.hex()}")
+            Logger.debug("TOKEN DEBUG", f"(decode error): {payload.hex()}")
     
-    def _handle_ecdh_share(self, payload: bytes):
+    def _handle_ecdh_share(self, payload: bytes) -> None:
         """Handle T2H_ECDH_SHARE (token ephemeral pubkey + signature)"""
         if len(payload) != 128:
-            print(f"{Colors.RED}[ERROR]{Colors.RESET} Invalid ECDH share length: {len(payload)} (expected 128)")
+            Logger.error(f"Invalid ECDH share length: {len(payload)} (expected 128)")
             return
         
         self.token_ecdh_share_received = payload
         self.ecdh_complete_event.set()
     
-    def _handle_channel_verify_request(self, payload: bytes):
+    def _handle_channel_verify_request(self, payload: bytes) -> None:
         """Handle T2H_CHANNEL_VERIFY_REQUEST (encrypted ping - already decrypted by serial layer)"""
         # Note: Protocol state was already set to 0x22 after deriving session key
         # Payload is already decrypted by serial layer
@@ -220,71 +209,72 @@ class MASTRHost:
             self.channel_challenge_received = payload
             self.challenge_event.set()
         else:
-            print(f"{Colors.RED}[ERROR]{Colors.RESET} Invalid challenge payload: {payload!r}")
+            Logger.error(f"Invalid challenge payload: {payload!r}")
     
-    def _handle_token_pubkey_response(self, payload: bytes):
+    def _handle_token_pubkey_response(self, payload: bytes) -> None:
         """Handle T2H_DEBUG_GET_TOKEN_PUBKEY response"""
         if len(payload) == 64:
             self.received_token_pubkey = payload
             self.token_pubkey_received_event.set()
-            print(f"{Colors.GREEN}✓{Colors.RESET} Received token public key: {payload[:32].hex()}...")
+            Logger.success(f"Received token public key: {payload[:32].hex()}...")
         else:
-            print(f"{Colors.RED}[ERROR]{Colors.RESET} Invalid token pubkey length: {len(payload)} (expected 64)")
+            Logger.error(f"Invalid token pubkey length: {len(payload)} (expected 64)")
     
-    def _handle_golden_hash_ack(self, payload: bytes):
+    def _handle_golden_hash_ack(self, payload: bytes) -> None:
         """Handle H2T_DEBUG_SET_GOLDEN_HASH acknowledgment"""
         if len(payload) == 32:
             self.golden_hash_ack_received = payload
             self.golden_hash_set_event.set()
-            print(f"{Colors.GREEN}✓{Colors.RESET} Golden hash set confirmed: {payload[:16].hex()}...")
+            Logger.success(f"Golden hash set confirmed: {payload[:16].hex()}...")
         else:
-            print(f"{Colors.RED}[ERROR]{Colors.RESET} Invalid golden hash ack length: {len(payload)} (expected 32)")
-    def _handle_boot_ok(self, payload: bytes):
+            Logger.error(f"Invalid golden hash ack length: {len(payload)} (expected 32)")
+    
+    def _handle_boot_ok(self, payload: bytes) -> None:
         """Handle T2H_BOOT_OK from token"""
-        print(f"{Colors.GREEN}✓{Colors.RESET} Token sent BOOT_OK - integrity verification passed!")
+        Logger.success("Token sent BOOT_OK - integrity verification passed!")
         self.boot_ok_event.set()
     
     
-    def _handle_error(self, payload: bytes):
+    def _handle_error(self, payload: bytes) -> None:
         """Handle T2H_ERROR"""
         if len(payload) >= 1:
             error_code = payload[0]
             error_msg = payload[1:].decode('utf-8', errors='replace') if len(payload) > 1 else ""
-            print(f"{Colors.RED}[TOKEN ERROR]{Colors.RESET} Code: 0x{error_code:02X}, Message: {error_msg}")
+            Logger.tagged("TOKEN ERROR", Colors.RED, f"Code: 0x{error_code:02X}, Message: {error_msg}")
     
-    def _handle_integrity_challenge(self, payload: bytes):
+    def _handle_integrity_challenge(self, payload: bytes) -> None:
         """Handle T2H_INTEGRITY_CHALLENGE (nonce from token)"""
         if len(payload) == 4:
             self.received_nonce = payload
             self.integrity_challenge_event.set()
-            print(f"{Colors.CYAN}[INTEGRITY]{Colors.RESET} Received challenge nonce: {payload.hex()}")
+            Logger.tagged("INTEGRITY", Colors.CYAN, f"Received challenge nonce: {payload.hex()}")
         else:
-            print(f"{Colors.RED}[ERROR]{Colors.RESET} Invalid nonce length: {len(payload)} (expected 4)")
+            Logger.error(f"Invalid nonce length: {len(payload)} (expected 4)")
     
-    def _handle_nack(self, payload: bytes):
+    def _handle_nack(self, payload: bytes) -> None:
         """Handle T2H_NACK"""
         if len(payload) >= 1:
             rejected_type = payload[0]
             reason = payload[1:].decode('utf-8', errors='replace') if len(payload) > 1 else ""
             rejected_name = get_message_name(rejected_type)
-            print(f"{Colors.YELLOW}[TOKEN NACK]{Colors.RESET} Rejected: {rejected_name}, Reason: {reason}")
+            Logger.tagged("TOKEN NACK", Colors.YELLOW, f"Rejected: {rejected_name}, Reason: {reason}")
     
     # ========================================================================
     # ERROR HANDLING
     # ========================================================================
     
-    def on_error(self, error: Exception):
+    def on_error(self, error: Exception) -> None:
         """Handle protocol errors"""
         self.error_count += 1
         
         if isinstance(error, ChecksumError):
-            print(f"{Colors.RED}ERROR:{Colors.RESET} Checksum validation failed - {error}", file=sys.stderr)
+            Logger.tagged("ERROR", Colors.RED, f"Checksum validation failed - {error}")
         elif isinstance(error, ProtocolError):
-            print(f"{Colors.RED}ERROR:{Colors.RESET} Protocol violation - {error}", file=sys.stderr)
+            Logger.tagged("ERROR", Colors.RED, f"Protocol violation - {error}")
         elif isinstance(error, FrameParserError):
-            print(f"{Colors.RED}ERROR:{Colors.RESET} Frame parsing error - {error}", file=sys.stderr)
+            Logger.tagged("ERROR", Colors.RED, f"Frame parsing error - {error}")
         else:
-            print(f"{Colors.RED}ERROR:{Colors.RESET} {type(error).__name__}: {error}", file=sys.stderr)
+            Logger.tagged("ERROR", Colors.RED, f"{type(error).__name__}: {error}")
     
     # ========================================================================
     # PHASE 0: KEY PROVISIONING
@@ -294,121 +284,121 @@ class MASTRHost:
         """Load permanent keys or generate them if they don't exist"""
         # If auto-provision flag is set, always regenerate and re-provision
         if self.auto_provision:
-            print(f"{Colors.YELLOW}[INFO]{Colors.RESET} Provision mode: Regenerating keypair...")
+            Logger.info("Provision mode: Regenerating keypair...")
             if self.crypto.generate_permanent_keypair():
                 host_pubkey = self.crypto.get_host_permanent_pubkey()
-                print(f"{Colors.GREEN}✓{Colors.RESET} Generated new host keypair")
+                Logger.success("Generated new host keypair")
                 if host_pubkey:
-                    print(f"  Host pubkey: {host_pubkey.hex()}")
+                    Logger.substep(f"Host pubkey: {host_pubkey.hex()}")
                 # Auto-provision: exchange keys with token
                 return self._auto_provision_token_key()
             else:
-                print(f"{Colors.RED}[ERROR]{Colors.RESET} Failed to generate keys")
+                Logger.error("Failed to generate keys")
                 return False
         
         # Normal mode: try to load existing keys
         if self.crypto.load_permanent_keys():
             host_pubkey = self.crypto.get_host_permanent_pubkey()
-            print(f"{Colors.GREEN}✓{Colors.RESET} Loaded permanent keys")
+            Logger.success("Loaded permanent keys")
             if self.verbose and host_pubkey:
-                print(f"  Host pubkey: {host_pubkey[:32].hex()}...")
+                Logger.substep(f"Host pubkey: {host_pubkey[:32].hex()}...")
             return True
         else:
-            print(f"{Colors.YELLOW}[WARNING]{Colors.RESET} Permanent keys not found!")
+            Logger.warning("Permanent keys not found!")
             print(f"Please run with --provision flag to generate and provision keys:")
             print(f"  python -m host.main {self.port} --provision")
             return False
     
     def _auto_provision_token_key(self) -> bool:
         """Request token public key automatically"""
-        print(f"\n{Colors.CYAN}=== Auto-Provisioning Token Key ==={Colors.RESET}")
+        Logger.section("Auto-Provisioning Token Key")
         
         # Step 1: Send host pubkey to token
-        print(f"1. Sending host public key to token...")
+        Logger.step(1, "Sending host public key to token...")
         host_pubkey = self.crypto.get_host_permanent_pubkey()
         if not self.handler.send_frame(MessageType.H2T_DEBUG_SET_HOST_PUBKEY.value, host_pubkey):
-            print(f"   {Colors.RED}✗{Colors.RESET} Failed to send host pubkey")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Failed to send host pubkey")
             return False
-        print(f"   {Colors.GREEN}✓{Colors.RESET} Sent host pubkey")
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Sent host pubkey")
         time.sleep(0.2)  # Give token time to process
         
-        # Step 2: Request token pubkey (send T2H_DEBUG_GET_TOKEN_PUBKEY with empty payload as request)
-        print(f"2. Requesting token public key...")
+        # Step 2: Request token pubkey
+        Logger.step(2, "Requesting token public key...")
         if not self.handler.send_frame(MessageType.T2H_DEBUG_GET_TOKEN_PUBKEY.value, b''):
-            print(f"   {Colors.RED}✗{Colors.RESET} Failed to send request")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Failed to send request")
             return False
         
         # Step 3: Wait for response
-        print(f"3. Waiting for token public key (timeout: 5s)...")
+        Logger.step(3, "Waiting for token public key (timeout: 5s)...")
         if not self.token_pubkey_received_event.wait(timeout=5.0):
-            print(f"   {Colors.RED}✗{Colors.RESET} Timeout waiting for token pubkey")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Timeout waiting for token pubkey")
             return False
         
         # Step 4: Save to file
-        print(f"4. Saving token public key...")
+        Logger.step(4, "Saving token public key...")
         try:
             with open('token_permanent_pubkey.bin', 'wb') as f:
                 f.write(self.received_token_pubkey)
-            print(f"   {Colors.GREEN}✓{Colors.RESET} Saved to token_permanent_pubkey.bin")
+            Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Saved to token_permanent_pubkey.bin")
             
             # Reload keys
             if self.crypto.load_permanent_keys():
-                print(f"{Colors.GREEN}✓{Colors.RESET} Keys provisioned successfully!")
+                Logger.success("Keys provisioned successfully!")
                 
                 # Step 5: Provision default golden hash
                 if not self._provision_golden_hash():
-                    print(f"{Colors.RED}[ERROR]{Colors.RESET} Failed to provision golden hash")
+                    Logger.error("Failed to provision golden hash")
                     return False
                 
                 return True
             else:
-                print(f"{Colors.RED}[ERROR]{Colors.RESET} Failed to reload keys")
+                Logger.error("Failed to reload keys")
                 return False
         except Exception as e:
-            print(f"{Colors.RED}[ERROR]{Colors.RESET} Failed to save token pubkey: {e}")
+            Logger.error(f"Failed to save token pubkey: {e}")
             return False
     
     def _provision_golden_hash(self) -> bool:
         """Compute and provision default golden hash to token"""
         import hashlib
         
-        print(f"\n{Colors.CYAN}=== Provisioning Golden Hash ==={Colors.RESET}")
+        Logger.section("Provisioning Golden Hash")
         
-        # Step 1: Compute golden hash from default test data: 2 bytes = 'h' + null terminator
-        print(f"1. Computing golden hash from default test data (2 bytes: 'h' + null)...")
+        # Step 1: Compute golden hash from default test data
+        Logger.step(1, "Computing golden hash from default test data (2 bytes: 'h' + null)...")
         test_data = b"h\0"  # 2 bytes: 0x68 0x00
         golden_hash = hashlib.sha256(test_data).digest()
-        print(f"   {Colors.GREEN}✓{Colors.RESET} Test data: {test_data.hex()} ({len(test_data)} bytes)")
-        print(f"   {Colors.GREEN}✓{Colors.RESET} Golden hash: {golden_hash.hex()}")
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Test data: {test_data.hex()} ({len(test_data)} bytes)")
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Golden hash: {golden_hash.hex()}")
         
         # Save golden hash to disk for future testing
         try:
             with open('golden_hash.bin', 'wb') as f:
                 f.write(golden_hash)
-            print(f"   {Colors.GREEN}✓{Colors.RESET} Saved to golden_hash.bin")
+            Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Saved to golden_hash.bin")
         except Exception as e:
-            print(f"   {Colors.YELLOW}[WARNING]{Colors.RESET} Could not save golden hash: {e}")
+            Logger.substep(f"{Colors.YELLOW}[WARNING]{Colors.RESET} Could not save golden hash: {e}")
         
         # Step 2: Send golden hash to token
-        print(f"2. Sending golden hash to token...")
+        Logger.step(2, "Sending golden hash to token...")
         if not self.handler.send_frame(MessageType.H2T_DEBUG_SET_GOLDEN_HASH.value, golden_hash):
-            print(f"   {Colors.RED}✗{Colors.RESET} Failed to send golden hash")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Failed to send golden hash")
             return False
         
         # Step 3: Wait for acknowledgment
-        print(f"3. Waiting for acknowledgment (timeout: 5s)...")
+        Logger.step(3, "Waiting for acknowledgment (timeout: 5s)...")
         if not self.golden_hash_set_event.wait(timeout=5.0):
-            print(f"   {Colors.RED}✗{Colors.RESET} Timeout waiting for ack")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Timeout waiting for ack")
             return False
         
         # Step 4: Verify the ack matches what we sent
         if self.golden_hash_ack_received != golden_hash:
-            print(f"   {Colors.RED}✗{Colors.RESET} Golden hash mismatch!")
-            print(f"      Sent:     {golden_hash.hex()}")
-            print(f"      Received: {self.golden_hash_ack_received.hex()}")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Golden hash mismatch!")
+            Logger.substep(f"   Sent:     {golden_hash.hex()}")
+            Logger.substep(f"   Received: {self.golden_hash_ack_received.hex()}")
             return False
         
-        print(f"{Colors.GREEN}✓{Colors.RESET} Golden hash provisioned successfully!")
+        Logger.success("Golden hash provisioned successfully!")
         return True
     
     # ========================================================================
@@ -422,60 +412,60 @@ class MASTRHost:
         Returns:
             True if handshake successful, False otherwise
         """
-        print(f"\n{Colors.CYAN}=== Phase 1: Mutual Authentication (ECDH) ==={Colors.RESET}")
+        Logger.section("Phase 1: Mutual Authentication (ECDH)")
         
         # Step 1: Generate ephemeral keypair
-        print(f"\n1. Generating ephemeral keypair...")
+        Logger.step(1, "Generating ephemeral keypair...")
         self.host_ephemeral_pubkey_raw, self.host_ephemeral_privkey = self.crypto.generate_ephemeral_keypair()
-        print(f"   {Colors.GREEN}✓{Colors.RESET} Ephemeral pubkey: {self.host_ephemeral_pubkey_raw[:32].hex()}...")
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Ephemeral pubkey: {self.host_ephemeral_pubkey_raw[:32].hex()}...")
         
         # Step 2: Sign ephemeral pubkey
-        print(f"\n2. Signing ephemeral pubkey with permanent key...")
+        Logger.step(2, "Signing ephemeral pubkey with permanent key...")
         signature_raw = self.crypto.sign_with_permanent_key(self.host_ephemeral_pubkey_raw)
         if signature_raw is None:
-            print(f"   {Colors.RED}✗{Colors.RESET} Failed to sign")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Failed to sign")
             return False
-        print(f"   {Colors.GREEN}✓{Colors.RESET} Signature: {signature_raw[:32].hex()}...")
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Signature: {signature_raw[:32].hex()}...")
         
         # Step 3: Send H2T_ECDH_SHARE
-        print(f"\n3. Sending H2T_ECDH_SHARE...")
+        Logger.step(3, "Sending H2T_ECDH_SHARE...")
         payload = self.host_ephemeral_pubkey_raw + signature_raw
         if not self.handler.send_frame(MessageType.H2T_ECDH_SHARE.value, payload):
-            print(f"   {Colors.RED}✗{Colors.RESET} Failed to send")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Failed to send")
             return False
-        print(f"   {Colors.GREEN}✓{Colors.RESET} Sent {len(payload)} bytes")
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Sent {len(payload)} bytes")
         self.protocol_state = 0x20
         
         # Step 4: Wait for T2H_ECDH_SHARE
-        print(f"\n4. Waiting for T2H_ECDH_SHARE (timeout: 10s)...")
+        Logger.step(4, "Waiting for T2H_ECDH_SHARE (timeout: 10s)...")
         if not self.ecdh_complete_event.wait(timeout=10.0):
-            print(f"   {Colors.RED}✗{Colors.RESET} Timeout waiting for token response")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Timeout waiting for token response")
             return False
         
         # Step 5: Verify token's signature
-        print(f"\n5. Verifying token's signature...")
+        Logger.step(5, "Verifying token's signature...")
         token_eph_pubkey = self.token_ecdh_share_received[:64]
         token_signature = self.token_ecdh_share_received[64:]
         
-        if not self.crypto.verify_signature(token_eph_pubkey, token_signature, 
+        if not self.crypto.verify_signature(token_eph_pubkey, token_signature,
                                            self.crypto.token_permanent_pubkey_raw):
-            print(f"   {Colors.RED}✗{Colors.RESET} Signature verification failed")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Signature verification failed")
             return False
-        print(f"   {Colors.GREEN}✓{Colors.RESET} Token signature verified")
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Token signature verified")
         
         # Step 6: Compute shared secret
-        print(f"\n6. Computing ECDH shared secret...")
+        Logger.step(6, "Computing ECDH shared secret...")
         shared_secret = self.crypto.compute_shared_secret(self.host_ephemeral_privkey, token_eph_pubkey)
         if shared_secret is None:
-            print(f"   {Colors.RED}✗{Colors.RESET} Failed to compute shared secret")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Failed to compute shared secret")
             return False
-        print(f"   {Colors.GREEN}✓{Colors.RESET} Shared secret: {shared_secret.hex()}")
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Shared secret: {shared_secret.hex()}")
         
         # Step 7: Derive session key
-        print(f"\n7. Deriving AES session key (HKDF-SHA256)...")
+        Logger.step(7, "Deriving AES session key (HKDF-SHA256)...")
         session_key = self.crypto.derive_session_key(shared_secret)
         if session_key is None:
-            print(f"   {Colors.RED}✗{Colors.RESET} Failed to derive session key")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Failed to derive session key")
             return False
         
         self.crypto.set_session_key(session_key)
@@ -484,7 +474,7 @@ class MASTRHost:
         self.crypto.set_encryption_enabled(True)
         self.protocol_state = 0x22
         
-        print(f"   {Colors.GREEN}✓{Colors.RESET} Session key: {session_key.hex()}")
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Session key: {session_key.hex()}")
         
         return True
     
@@ -499,25 +489,25 @@ class MASTRHost:
         Returns:
             True if verification successful, False otherwise
         """
-        print(f"\n{Colors.CYAN}=== Channel Verification ==={Colors.RESET}")
+        Logger.section("Channel Verification")
         
         # Wait for encrypted ping challenge
-        print(f"\n8. Waiting for encrypted ping challenge (timeout: 5s)...")
+        Logger.step(8, "Waiting for encrypted ping challenge (timeout: 5s)...")
         if not self.challenge_event.wait(timeout=5.0):
-            print(f"   {Colors.RED}✗{Colors.RESET} Timeout waiting for challenge")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Timeout waiting for challenge")
             return False
         
-        print(f"   {Colors.GREEN}✓{Colors.RESET} Received challenge: {self.channel_challenge_received!r}")
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Received challenge: {self.channel_challenge_received!r}")
         
         # Send pong response (will be encrypted automatically by serial layer)
-        print(f"\n9. Sending pong response (will be encrypted automatically)...")
+        Logger.step(9, "Sending pong response (will be encrypted automatically)...")
         pong_payload = b"pong"
         
         if not self.handler.send_frame(MessageType.H2T_CHANNEL_VERIFY_RESPONSE.value, pong_payload):
-            print(f"   {Colors.RED}✗{Colors.RESET} Failed to send response")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Failed to send response")
             return False
         
-        print(f"   {Colors.GREEN}✓{Colors.RESET} Pong sent")
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Pong sent")
         
         # Update state to "established" (encryption remains enabled)
         self.protocol_state = 0x24
@@ -536,73 +526,72 @@ class MASTRHost:
         """
         import hashlib
         
-        print(f"\n{Colors.CYAN}=== Phase 2: Integrity Verification ==={Colors.RESET}")
+        Logger.section("Phase 2: Integrity Verification")
         
         # Wait for integrity challenge from token
-        print(f"\n10. Waiting for integrity challenge (timeout: 10s)...")
+        Logger.step(10, "Waiting for integrity challenge (timeout: 10s)...")
         if not self.integrity_challenge_event.wait(timeout=10.0):
-            print(f"   {Colors.RED}✗{Colors.RESET} Timeout waiting for challenge")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Timeout waiting for challenge")
             return False
         
         nonce = self.received_nonce
-        print(f"   {Colors.GREEN}✓{Colors.RESET} Received nonce: {nonce.hex()}")
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Received nonce: {nonce.hex()}")
         
         # Load the golden hash we provisioned
-        print(f"\n11. Loading golden hash...")
+        Logger.step(11, "Loading golden hash...")
         try:
             with open('golden_hash.bin', 'rb') as f:
                 golden_hash = f.read()
             if len(golden_hash) != 32:
-                print(f"   {Colors.RED}✗{Colors.RESET} Invalid golden hash length: {len(golden_hash)}")
+                Logger.substep(f"{Colors.RED}✗{Colors.RESET} Invalid golden hash length: {len(golden_hash)}")
                 return False
-            print(f"   {Colors.GREEN}✓{Colors.RESET} Golden hash: {golden_hash[:16].hex()}...")
+            Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Golden hash: {golden_hash[:16].hex()}...")
         except FileNotFoundError:
-            print(f"   {Colors.RED}✗{Colors.RESET} Golden hash file not found. Run with --provision first.")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Golden hash file not found. Run with --provision first.")
             return False
         except Exception as e:
-            print(f"   {Colors.RED}✗{Colors.RESET} Error loading golden hash: {e}")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Error loading golden hash: {e}")
             return False
         
         # Combine hash + nonce for signing
-        print(f"\n12. Preparing integrity response...")
+        Logger.step(12, "Preparing integrity response...")
         message_to_sign = golden_hash + nonce
-        print(f"   Message to sign: hash + nonce ({len(message_to_sign)} bytes)")
+        Logger.substep(f"Message to sign: hash + nonce ({len(message_to_sign)} bytes)")
         
         # Sign with permanent private key
-        print(f"\n13. Signing with permanent key...")
+        Logger.step(13, "Signing with permanent key...")
         signature = self.crypto.sign_with_permanent_key(message_to_sign)
         if signature is None:
-            print(f"   {Colors.RED}✗{Colors.RESET} Failed to sign")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Failed to sign")
             return False
-        print(f"   {Colors.GREEN}✓{Colors.RESET} Signature: {signature[:32].hex()}...")
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Signature: {signature[:32].hex()}...")
         
-        # Send H2T_INTEGRITY_RESPONSE: hash (32) + signature (64) = 96 bytes
-        # Serial layer will encrypt automatically since protocol state >= 0x22
-        print(f"\n14. Sending integrity response (will be encrypted automatically)...")
+        # Send H2T_INTEGRITY_RESPONSE
+        Logger.step(14, "Sending integrity response (will be encrypted automatically)...")
         payload = golden_hash + signature
         
         if not self.handler.send_frame(MessageType.H2T_INTEGRITY_RESPONSE.value, payload):
-            print(f"   {Colors.RED}✗{Colors.RESET} Failed to send response")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Failed to send response")
             return False
         
-        print(f"   {Colors.GREEN}✓{Colors.RESET} Sent {len(payload)} bytes (hash + signature)")
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Sent {len(payload)} bytes (hash + signature)")
         
         # Update state to waiting for BOOT_OK
         self.protocol_state = 0x31
         
         # Wait for BOOT_OK from token
-        print(f"\n15. Waiting for BOOT_OK from token (timeout: 10s)...")
+        Logger.step(15, "Waiting for BOOT_OK from token (timeout: 10s)...")
         if not self.boot_ok_event.wait(timeout=10.0):
-            print(f"   {Colors.RED}✗{Colors.RESET} Timeout waiting for BOOT_OK")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Timeout waiting for BOOT_OK")
             return False
         
-        # Send acknowledgment (will be encrypted automatically by serial layer)
-        print(f"\n16. Sending BOOT_OK acknowledgment...")
+        # Send acknowledgment
+        Logger.step(16, "Sending BOOT_OK acknowledgment...")
         if not self.handler.send_frame(MessageType.H2T_BOOT_OK_ACK.value, b''):
-            print(f"   {Colors.RED}✗{Colors.RESET} Failed to send ACK")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Failed to send ACK")
             return False
         
-        print(f"   {Colors.GREEN}✓{Colors.RESET} BOOT_OK ACK sent")
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} BOOT_OK ACK sent")
         
         # Update state to complete
         self.protocol_state = 0x34
@@ -614,33 +603,31 @@ class MASTRHost:
     # MAIN PROTOCOL EXECUTION
     # ========================================================================
     
-    def run(self):
+    def run(self) -> int:
         """
         Run the MASTR host protocol.
         
         Returns:
             Exit code (0 = success)
         """
-        print(f"{Colors.CYAN}{'='*60}{Colors.RESET}")
-        print(f"{Colors.CYAN}MASTR Host - Production Protocol Implementation{Colors.RESET}")
-        print(f"{Colors.CYAN}{'='*60}{Colors.RESET}")
+        Logger.header("MASTR Host - Production Protocol Implementation")
         print(f"Port: {self.port}")
         print(f"Crypto: {type(self.crypto).__name__}")
         
         # Connect to serial port first
-        print(f"\n{Colors.CYAN}=== Connecting to Token ==={Colors.RESET}")
+        Logger.section("Connecting to Token")
         if not self.handler.connect():
-            print(f"{Colors.RED}ERROR:{Colors.RESET} Failed to connect to {self.port}")
+            Logger.tagged("ERROR", Colors.RED, f"Failed to connect to {self.port}")
             return 1
         
-        print(f"{Colors.GREEN}✓{Colors.RESET} Connected to {self.port}")
+        Logger.success(f"Connected to {self.port}")
         self.handler.start()
         
         # Give token time to boot
         time.sleep(0.5)
         
-        # Step 0: Load permanent keys (now that we're connected)
-        print(f"\n{Colors.CYAN}=== Phase 0: Key Loading ==={Colors.RESET}")
+        # Step 0: Load permanent keys
+        Logger.section("Phase 0: Key Loading")
         keys_loaded = self._load_or_generate_keys()
         if not keys_loaded:
             self.handler.stop()
@@ -659,9 +646,7 @@ class MASTRHost:
                 return 1
             
             # Channel established!
-            print(f"\n{Colors.GREEN}{'='*60}{Colors.RESET}")
-            print(f"{Colors.GREEN}✅ Secure channel established!{Colors.RESET}")
-            print(f"{Colors.GREEN}{'='*60}{Colors.RESET}")
+            Logger.success_header("✅ Secure channel established!")
             print(f"Protocol state: 0x{self.protocol_state:02X}")
             print(f"Session key: {self.crypto.get_session_key().hex()}")
             
@@ -671,9 +656,7 @@ class MASTRHost:
                 return 1
             
             # Success!
-            print(f"\n{Colors.GREEN}{'='*60}{Colors.RESET}")
-            print(f"{Colors.GREEN}✅ Integrity verification complete!{Colors.RESET}")
-            print(f"{Colors.GREEN}{'='*60}{Colors.RESET}")
+            Logger.success_header("✅ Integrity verification complete!")
             
             # ================================================================
             # TODO: Phase 3 - Runtime Heartbeat
@@ -687,8 +670,8 @@ class MASTRHost:
             # heartbeat_thread = threading.Thread(target=self._heartbeat_loop)
             # heartbeat_thread.start()
             
-            print(f"\n{Colors.YELLOW}[INFO]{Colors.RESET} Keeping connection open...")
-            print(f"{Colors.YELLOW}[INFO]{Colors.RESET} Press Ctrl+C to exit")
+            Logger.info("Keeping connection open...")
+            Logger.info("Press Ctrl+C to exit")
             
             # Keep connection open
             while self.handler.is_connected and self.handler._running:
@@ -701,7 +684,7 @@ class MASTRHost:
             self.handler.stop()
             self.handler.disconnect()
             
-            print(f"\n{Colors.CYAN}Statistics:{Colors.RESET}")
+            Logger.tagged("Statistics", Colors.CYAN, "")
             print(f"  Frames received: {self.frame_count}")
             print(f"  Errors: {self.error_count}")
         
@@ -775,11 +758,11 @@ def main():
         crypto = NaiveCrypto()
     elif args.crypto == 'tpm2':
         # TODO: Implement TPM2Crypto backend
-        print("ERROR: TPM2 crypto not yet implemented")
+        Logger.error("TPM2 crypto not yet implemented")
         print("Use --crypto=naive for now")
         return 1
     else:
-        print(f"ERROR: Unknown crypto implementation: {args.crypto}")
+        Logger.error(f"Unknown crypto implementation: {args.crypto}")
         return 1
     
     host = MASTRHost(
