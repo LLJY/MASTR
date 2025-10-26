@@ -6,7 +6,11 @@
 #ifndef UNIT_TEST
 #include "pico/stdlib.h"
 #include "pico/rand.h"
+// Use hardware SHA256 on RP2350, mbedtls software SHA256 on RP2040
+#ifdef LIB_PICO_SHA256
 #include "pico/sha256.h"
+#endif
+#include "mbedtls/sha256.h"
 #include "mbedtls/gcm.h"
 #include "mbedtls/hkdf.h"
 #include "mbedtls/md.h"
@@ -37,6 +41,41 @@ static void generate_iv(uint8_t* iv_out) {
 }
 
 /**
+ * Computes SHA256 hash of message.
+ * Uses hardware acceleration on RP2350, software on RP2040.
+ * 
+ * Set FORCE_SOFTWARE_SHA256=1 to test software SHA256 on RP2350.
+ * 
+ * @param message Input message to hash
+ * @param message_len Length of input message
+ * @param hash_out Output buffer for 32-byte hash
+ */
+static void compute_sha256(const uint8_t* message, size_t message_len, uint8_t* hash_out) {
+#ifndef UNIT_TEST
+#if defined(LIB_PICO_SHA256) && !defined(FORCE_SOFTWARE_SHA256)
+    // RP2350: Use hardware SHA256 for maximum speed
+    pico_sha256_state_t state;
+    sha256_result_t result;
+    pico_sha256_start_blocking(&state, SHA256_BIG_ENDIAN, false);
+    pico_sha256_update_blocking(&state, message, message_len);
+    pico_sha256_finish(&state, &result);
+    memcpy(hash_out, result.bytes, 32);
+#else
+    // RP2040 or FORCE_SOFTWARE_SHA256: Use mbedtls software SHA256
+    mbedtls_sha256_context ctx;
+    mbedtls_sha256_init(&ctx);
+    mbedtls_sha256_starts(&ctx, 0);  // 0 = SHA256 (not SHA224)
+    mbedtls_sha256_update(&ctx, message, message_len);
+    mbedtls_sha256_finish(&ctx, hash_out);
+    mbedtls_sha256_free(&ctx);
+#endif
+#else
+    (void)message; (void)message_len;
+    memset(hash_out, 0, 32);
+#endif
+}
+
+/**
  * Encrypts plaintext using AES-128-GCM.
  * Output format: [IV (12)][Ciphertext (N)][Tag (16)]
  * 
@@ -59,7 +98,6 @@ static void generate_iv(uint8_t* iv_out) {
     // Set up the GCM context with AES-128
     int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key, AES_KEY_SIZE * 8);
     if (ret != 0) {
-        // Cannot use print_dbg() - causes infinite recursion!
         mbedtls_gcm_free(&gcm);
         return false;
     }
@@ -306,12 +344,7 @@ bool ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_len,
     if (message_len == 32) {
         memcpy(hash, message, 32);
     } else {
-        pico_sha256_state_t state;
-        sha256_result_t result;
-        pico_sha256_start_blocking(&state, SHA256_BIG_ENDIAN, false);
-        pico_sha256_update_blocking(&state, message, message_len);
-        pico_sha256_finish(&state, &result);
-        memcpy(hash, result.bytes, 32);
+        compute_sha256(message, message_len, hash);
     }
     
     // Sign using permanent private key in Slot 0
@@ -378,19 +411,14 @@ bool ecdh_verify_signature(const uint8_t* message, size_t message_len,
     if (message_len == 32) {
         memcpy(hash, message, 32);
     } else {
-        pico_sha256_state_t state;
-        sha256_result_t result;
-        pico_sha256_start_blocking(&state, SHA256_BIG_ENDIAN, false);
-        pico_sha256_update_blocking(&state, message, message_len);
-        pico_sha256_finish(&state, &result);
-        memcpy(hash, result.bytes, 32);
+        compute_sha256(message, message_len, hash);
     }
     
     bool is_verified = false;
     ATCA_STATUS status = atcab_verify_extern(hash, signature, host_pubkey, &is_verified);
     
     if (status != ATCA_SUCCESS) {
-        print_dbg("ECDH ERROR: verify failed, status: 0x%02X\n", status);
+        print_dbg("ECDH ERROR: verify failed, status: 0x%02X (%d)\n", status, (int)status);
         return false;
     }
     

@@ -4,7 +4,6 @@
 
 #ifndef UNIT_TEST
 #include "cryptoauthlib.h"
-#include "pico/sha256.h"
 #endif
 
 // Global protocol state
