@@ -66,7 +66,9 @@ int main() {
     };
     
     ATCA_STATUS status = atcab_init(&cfg);
-    if (status == ATCA_SUCCESS) {
+    if (status != ATCA_SUCCESS) {
+        // we cannot continue, panic.
+        
     }
     
     // Initialize cryptographic subsystem

@@ -200,6 +200,22 @@ bool ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
  */
 bool ecdh_read_token_pubkey(uint8_t* token_pubkey_out);
 
+/**
+ * @brief Verify integrity challenge response from host
+ *
+ * Verifies that the host's integrity response is correctly signed.
+ * The message format is: hash (32 bytes) || nonce (4 bytes)
+ *
+ * @param hash 32-byte golden hash
+ * @param nonce 4-byte nonce that was sent to the host
+ * @param signature 64-byte ECDSA signature from host
+ * @param host_pubkey 64-byte host permanent public key
+ * @param result Output parameter: true if signature is valid, false otherwise
+ * @return true if verification operation succeeded, false on error
+ */
+bool crypto_verify_integrity_challenge(const uint8_t* hash, uint32_t nonce,
+                           const uint8_t* signature, const uint8_t* host_pubkey, bool *result);
+
 // ============================================================================
 // POC/Testing Functions - TEMPORARY
 // ============================================================================
@@ -222,5 +238,20 @@ const uint8_t* get_poc_aes_key(void);
  * @param enable true to force encryption, false to use state-based logic
  */
 void set_force_encryption(bool enable);
+
+/**
+ * This function gets the golden hash from the ATECC and returns it.
+ * @param p_result pointer to the receiving buffer (size 32 uint8_t array) of the golden hash.
+ * @return true if successful, false otherwise.
+ */
+bool crypto_get_golden_hash(uint8_t* p_result);
+
+/**
+ * This function sets the golden hash to the ATECC's slot 8 (data zone, 416 bytes)
+ * slot 8 layout (ours) <pubkey 64B>(data block 0+1)|<golden hash 32B> (data block 2)
+ * @param p_hash pointer to the (size 32 uint8_t array) of the golden hash.
+ * @return true if successful, false otherwise.
+ */
+bool crypto_set_golden_hash(uint8_t* p_hash);
 
 #endif // CRYPT_H

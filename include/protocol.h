@@ -155,6 +155,8 @@ typedef enum {
      * \n payload: 64-byte P-256 public key
      */
     T2H_DEBUG_GET_TOKEN_PUBKEY = 0xFA,
+
+    H2T_DEBUG_SET_GOLDEN_HASH = 0xF9
     #endif
 
 } message_type_t;
@@ -180,7 +182,10 @@ typedef struct{
     uint8_t aes_session_key[16];
     
     // Channel verification challenge
-    uint8_t channel_challenge[32];       // Random challenge sent to host
+    uint8_t channel_challenge[32];       // Random challenge sent to host TODO REMOVE
+
+    // nonce sent during integrity challenge
+    uint32_t integrity_challenge_nonce;
 
     // missed hb will increment if the expected hearbeat time is exceeded.
     uint8_t missed_hb_count;

@@ -2,6 +2,7 @@
 #include "protocol.h"
 #include "serial.h"
 #include <string.h>
+#include <stdint.h>
 
 #ifndef UNIT_TEST
 #include "pico/stdlib.h"
@@ -472,4 +473,93 @@ bool ecdh_read_token_pubkey(uint8_t* token_pubkey_out) {
     (void)token_pubkey_out;
     return false;
 #endif
+}
+
+/**
+ * Verifies the integrity challenge response from the host.
+ * The host signs (hash || nonce) with its permanent private key.
+ * We reconstruct the message and verify the signature.
+ *
+ * @param p_hash 32-byte golden hash
+ * @param nonce 4-byte nonce
+ * @param p_signature 64-byte ECDSA signature
+ * @param p_host_pubkey 64-byte host permanent public key
+ * @param p_result Output: true if signature is valid, false otherwise
+ * @return true if operation succeeded, false on error
+ */
+bool crypto_verify_integrity_challenge(const uint8_t* p_hash, uint32_t nonce,
+                           const uint8_t* p_signature, const uint8_t* p_host_pubkey, bool *p_result){
+#ifndef UNIT_TEST
+    // Create buffer to concatenate hash (32 bytes) + nonce (4 bytes) = 36 bytes
+    uint8_t message[36];
+    
+    // Copy hash to the beginning of the buffer
+    memcpy(message, p_hash, 32);
+    
+    // Copy nonce bytes after the hash
+    // The nonce is a uint32_t, so we copy its 4 bytes
+    memcpy(message + 32, &nonce, 4);
+    
+    // The host signs SHA256(hash || nonce), so we need to hash the combined message
+    uint8_t message_hash[32];
+    compute_sha256(message, 36, message_hash);
+    
+    // Verify the signature using ATECC's external verification
+    ATCA_STATUS status = atcab_verify_extern(message_hash, p_signature, p_host_pubkey, p_result);
+    
+    if (status != ATCA_SUCCESS) {
+        print_dbg("ATECC error code: 0x%02X", status);
+        return false;
+    }
+    
+    return true;
+#else
+    (void)hash; (void)nonce; (void)signature; (void)host_pubkey; (void)result;
+    return false;
+#endif
+}
+
+/**
+ * This function gets the golden hash from the ATECC and returns it.
+ * @param p_result pointer to the receiving buffer (size 32 uint8_t array) of the golden hash.
+ * @return true if successful, false otherwise.
+ */
+bool crypto_get_golden_hash(uint8_t* p_result){
+    ATCA_STATUS atca_status = atcab_read_zone(
+        ATCA_ZONE_DATA,
+        8,
+        2,
+        0,
+        p_result,
+        32
+    );
+
+    if(atca_status != ATCA_SUCCESS){
+        print_dbg("ATECC error code: 0x%02X", atca_status);
+        return false;
+    }
+    return true;
+}
+
+/**
+ * This function sets the golden hash to the ATECC's slot 8 (data zone, 416 bytes)
+ * slot 8 layout (ours) <pubkey 64B>(data block 0+1)|<golden hash 32B> (data block 2)
+ * @param p_hash pointer to the (size 32 uint8_t array) of the golden hash.
+ * @return true if successful, false otherwise.
+ */
+bool crypto_set_golden_hash(uint8_t* p_hash){
+    ATCA_STATUS atca_status = atcab_write_zone(
+        ATCA_ZONE_DATA,     // Zone: data zone
+        8,                  // Slot 8
+        2,                  // Block number 2 (starts at byte 64)
+        0,                  // Offset within block
+        p_hash,            // 32-byte golden hash
+        32                  // Write 32 bytes
+    );
+
+    if(atca_status != ATCA_SUCCESS){
+        print_dbg("ATECC error code: 0x%02X", atca_status);
+        return false;
+    }
+    return true;
 }

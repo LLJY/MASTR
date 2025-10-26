@@ -1,7 +1,7 @@
 #include "protocol.h"
 #include "serial.h"
 #include "crypt.h"
-
+#include "pico/rand.h"
 #ifndef UNIT_TEST
 #include "cryptoauthlib.h"
 #endif
@@ -148,19 +148,79 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                     send_shutdown_signal();
                     break;
                 }
-
-                protocol_state.current_state = 0x24;
+                
+                // advance to phase 2.
+                protocol_state.current_state = 0x30;
+                protocol_state.integrity_challenge_nonce = get_rand_32();
+                send_message(T2H_INTEGRITY_CHALLENGE, (uint8_t*)&protocol_state.integrity_challenge_nonce, 4);
             }
             #endif
             break;
         
         // ===== PHASE 2: INTEGRITY & BOOT =====
         case H2T_INTEGRITY_RESPONSE:
-            print_dbg("Handler: H2T_INTEGRITY_RESPONSE (not implemented)\n");
+            if(protocol_state.current_state != 0x30){
+                print_dbg("ERROR: Channel verify response rejected (wrong state: 0x%02X)\n", protocol_state.current_state);
+                // disallowed state (desync)
+                send_shutdown_signal();
+                break; // should never reach
+            }
+
+            if(len != 96){
+                send_message(T2H_NACK, NULL, 0);
+                break;
+            }
+
+            print_dbg("Handler: H2T_INTEGRITY_RESPONSE started\n");
+            // payload here contains hash + sig (hash_nonce)
+            
+            // separate the payload into hash and sig
+            uint8_t hash[32];
+            memcpy(hash, payload, 32);
+
+            uint8_t signature[64];
+            memcpy(signature, payload + 32, 64);
+
+            bool result;
+            if(!crypto_verify_integrity_challenge(hash,
+                 protocol_state.integrity_challenge_nonce,
+                 signature,
+                 protocol_state.host_permanent_pubkey,
+                &result)){
+                print_dbg("ATECC error");
+                send_message(T2H_ERROR, NULL, 0);
+                break;
+            }
+
+            if(!result){
+                // signature verification failed, send to irreversible state, we are under attack.
+                send_shutdown_signal();
+                break; // should never reach
+            }
+            
+            uint8_t p_golden_hash[32];
+            bool atecc_status = crypto_get_golden_hash(p_golden_hash);
+            
+            if(!atecc_status){
+                send_message(T2H_ERROR, NULL, 0);
+                break;
+            }
+
+            if(memcmp(hash, p_golden_hash, 32)){
+                // signature verification failed, send to irreversible state, we are under attack.
+                send_shutdown_signal();
+                break; // should never reach
+            }
+
+            send_message(T2H_BOOT_OK, NULL, 0);
+
+            // advance state and wait for ACK
+            protocol_state.current_state = 0x32;
             break;
         
         case H2T_BOOT_OK_ACK:
-            print_dbg("Handler: H2T_BOOT_OK_ACK (not implemented)\n");
+            // do nothing, advance the state.
+            protocol_state.current_state = 0x40;
             break;
         
         case H2T_INTEGRITY_FAIL_HALT:
@@ -176,7 +236,7 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
             print_dbg("Handler: H2T_HEARTBEAT (not implemented)\n");
             break;
         
-        // ===== TESTING & DEBUG =====
+        // ===== TESTING & DEBUG DO NOT INCLUDE IN PRODUCTION. =====
         case H2T_TEST_RANDOM_REQUEST:
             #ifndef UNIT_TEST
             {
@@ -239,8 +299,37 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
             }
             #endif
             break;
+        case H2T_DEBUG_SET_GOLDEN_HASH:
+            #ifndef UNIT_TEST
+            {
+                if(len != 32) {
+                    send_message(T2H_ERROR, NULL, 0);
+                    break;
+                }
+                
+                bool atecc_status = crypto_set_golden_hash(payload);
+
+                if(!atecc_status){
+                    send_message(T2H_ERROR, NULL, 0);
+                    break;
+                }
+                
+                // Read back the golden hash to verify it was written correctly
+                uint8_t p_golden_hash_retval[32];
+                bool atecc_status1 = crypto_get_golden_hash(p_golden_hash_retval);
+                
+                if(!atecc_status1){
+                    send_message(T2H_ERROR, NULL, 0);
+                    break;
+                }
+                
+                // Send back the read hash as acknowledgment
+                send_message(H2T_DEBUG_SET_GOLDEN_HASH, p_golden_hash_retval, 32);
+            }
+            #endif
+            break;
         
-        // ===== INVALID MESSAGE TYPES =====
+        // ===== INVALID MESSAGE TYPES =====h
         // All other message types are T2H (Token to Host), so they should
         // not be received by the Token. This is an error condition.
         default:
