@@ -276,10 +276,14 @@ class NaiveCrypto(CryptoInterface):
         iv = payload[:GCM_IV_SIZE]
         ciphertext_and_tag = payload[GCM_IV_SIZE:]
         
+        print(f"[DECRYPT] Payload len: {len(payload)}, IV: {iv.hex()}, Session key: {self.session_key.hex()}")
+        print(f"[DECRYPT] Ciphertext+Tag ({len(ciphertext_and_tag)} bytes): {ciphertext_and_tag.hex()}")
+        
         # Decrypt and verify
         try:
             aesgcm = AESGCM(self.session_key)
             plaintext = aesgcm.decrypt(iv, ciphertext_and_tag, None)
             return plaintext
         except Exception as e:
+            print(f"[DECRYPT] ERROR: {e}")
             raise ValueError(f"Decryption failed: {e}")

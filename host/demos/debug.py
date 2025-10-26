@@ -10,9 +10,9 @@ from typing import Optional
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
-from .serial_handler import SerialHandler
-from .protocol import Frame, MessageType, get_message_name
-from .parser import FrameParserError, ChecksumError, ProtocolError
+from host.serial_handler import SerialHandler
+from host.protocol import Frame, MessageType, get_message_name
+from host.parser import FrameParserError, ChecksumError, ProtocolError
 
 
 # ANSI Color Codes

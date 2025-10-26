@@ -275,6 +275,21 @@ class MASTRHost:
     
     def _load_or_generate_keys(self) -> bool:
         """Load permanent keys or generate them if they don't exist"""
+        # If auto-provision flag is set, always regenerate and re-provision
+        if self.auto_provision:
+            print(f"{Colors.YELLOW}[INFO]{Colors.RESET} Provision mode: Regenerating keypair...")
+            if self.crypto.generate_permanent_keypair():
+                host_pubkey = self.crypto.get_host_permanent_pubkey()
+                print(f"{Colors.GREEN}✓{Colors.RESET} Generated new host keypair")
+                if host_pubkey:
+                    print(f"  Host pubkey: {host_pubkey.hex()}")
+                # Auto-provision: exchange keys with token
+                return self._auto_provision_token_key()
+            else:
+                print(f"{Colors.RED}[ERROR]{Colors.RESET} Failed to generate keys")
+                return False
+        
+        # Normal mode: try to load existing keys
         if self.crypto.load_permanent_keys():
             host_pubkey = self.crypto.get_host_permanent_pubkey()
             print(f"{Colors.GREEN}✓{Colors.RESET} Loaded permanent keys")
@@ -282,27 +297,10 @@ class MASTRHost:
                 print(f"  Host pubkey: {host_pubkey[:32].hex()}...")
             return True
         else:
-            print(f"{Colors.YELLOW}[INFO]{Colors.RESET} Permanent keys not found, generating new keypair...")
-            if self.crypto.generate_permanent_keypair():
-                host_pubkey = self.crypto.get_host_permanent_pubkey()
-                print(f"{Colors.GREEN}✓{Colors.RESET} Generated new host keypair")
-                if host_pubkey:
-                    print(f"  Host pubkey: {host_pubkey.hex()}")
-                
-                # Check if token pubkey exists
-                if not self.auto_provision:
-                    print(f"{Colors.YELLOW}[WARNING]{Colors.RESET} Token public key not found!")
-                    print(f"Please provision the token first:")
-                    print(f"  python -m host.demos.debug {self.port}")
-                    print(f"  Then type: provision")
-                    print(f"Or run with --provision flag to auto-provision")
-                    return False
-                else:
-                    # Auto-provision: request token pubkey
-                    return self._auto_provision_token_key()
-            else:
-                print(f"{Colors.RED}[ERROR]{Colors.RESET} Failed to generate keys")
-                return False
+            print(f"{Colors.YELLOW}[WARNING]{Colors.RESET} Permanent keys not found!")
+            print(f"Please run with --provision flag to generate and provision keys:")
+            print(f"  python -m host.main {self.port} --provision")
+            return False
     
     def _auto_provision_token_key(self) -> bool:
         """Request token public key automatically"""

@@ -1,98 +1,193 @@
-# MASTR Host Communication Library
+# MASTR Python Codebase Structure# MASTR Host Communication Library
 
-**Reference implementation** for communicating with the MASTR Token device over serial (USB CDC).
 
-## Overview
 
-The MASTR protocol enables secure communication between a host system and a hardware security token (RP2040 + ATECC608A). This Python library implements:
+## Overview**Reference implementation** for communicating with the MASTR Token device over serial (USB CDC).
+
+
+
+The Python codebase has been reorganized for clarity:## Overview
+
+
+
+- **`host/`** - Production code and demosThe MASTR protocol enables secure communication between a host system and a hardware security token (RP2040 + ATECC608A). This Python library implements:
+
+- **Root test files** - Backward compatibility wrappers
 
 - **Protocol Parser**: Byte-stuffing frame parser with checksum validation
-- **Serial Handler**: Robust serial communication with auto-reconnection
+
+## File Organization- **Serial Handler**: Robust serial communication with auto-reconnection
+
 - **Message Types**: Complete enumeration of all protocol messages
-- **Test Application**: Interactive command-line tool for testing
 
-## Features
+### Production Code- **Test Application**: Interactive command-line tool for testing
 
-- **Protocol Parsing**: Handles byte-stuffing, frame boundaries, and checksum verification
-- **Debug Message Support**: Automatically detects and displays DEBUG messages from the token
+- **`host/main.py`** - Production protocol implementation (stub for future development)
+
+- **`host/protocol.py`** - Message type definitions and frame handling## Features
+
+- **`host/crypto.py`** - AES-GCM encryption and ECDH key derivation
+
+- **`host/serial_handler.py`** - Serial communication with automatic reconnection- **Protocol Parsing**: Handles byte-stuffing, frame boundaries, and checksum verification
+
+- **`host/parser.py`** - Frame parsing and validation- **Debug Message Support**: Automatically detects and displays DEBUG messages from the token
+
 - **Separation of Concerns**: Clean OOP architecture with distinct protocol, parser, and serial handler layers
-- **Real-time Display**: Shows received frames with hex dumps and decoded payloads
-- **Error Handling**: Comprehensive error reporting for protocol violations and checksum failures
-- **Auto-reconnection**: Automatically reconnects when device is disconnected/reconnected
-- **Interactive Commands**: Send test messages to the device
 
-## Usage
+### Testing & Demos- **Real-time Display**: Shows received frames with hex dumps and decoded payloads
 
-### As a Test Application
+- **`host/debug.py`** - Interactive debugger and testing tool ⭐- **Error Handling**: Comprehensive error reporting for protocol violations and checksum failures
+
+  - Key provisioning (generate/exchange permanent keys)- **Auto-reconnection**: Automatically reconnects when device is disconnected/reconnected
+
+  - Manual message sending for all protocol phases- **Interactive Commands**: Send test messages to the device
+
+  - Integrated ECDH demo launcher
+
+  ## Usage
+
+- **`host/mutual_auth_demo.py`** - Full ECDH mutual authentication demo ⭐
+
+  - Complete implementation of Phase 1 (mutual authentication)### As a Test Application
+
+  - Reference implementation for production code
 
 Run the interactive test receiver:
 
-```bash
-# Basic usage
-python -m host.main /dev/ttyACM0
+### Legacy Compatibility
 
-# With verbose output
+- **`test_ecdh.py`** - Wrapper redirecting to `host/mutual_auth_demo.py````bash
+
+- **`test_crypto.py`** - Standalone encryption tests# Basic usage
+
+- **`test_debug_keys.py`** - Key provisioning helperpython -m host.main /dev/ttyACM0
+
+
+
+## Usage# With verbose output
+
 python -m host.main /dev/ttyACM0 -v
 
-# With raw byte debugging
-python -m host.main /dev/ttyACM0 -d
+### Interactive Debugger (Recommended)
 
-# Custom baud rate
-python -m host.main /dev/ttyACM0 -b 115200
+```bash# With raw byte debugging
 
-# On Windows
-python -m host.main COM3
+python -m host.debug /dev/ttyACM1python -m host.main /dev/ttyACM0 -d
+
 ```
 
-**Interactive Commands:**
-- `r` - Request random number from ATECC608A
+# Custom baud rate
+
+Commands:python -m host.main /dev/ttyACM0 -b 115200
+
+- `provision` - Auto-generate keys and exchange with token
+
+- `gettoken` - Request token's permanent public key (saves to file)# On Windows
+
+- `genkeys` - Generate new host permanent keypairpython -m host.main COM3
+
+- `sethost` - Send host permanent public key to token```
+
+- `ecdh_demo` - Run full ECDH mutual authentication demo
+
+- `random` - Request hardware RNG output**Interactive Commands:**
+
+- `help` - Show all available commands- `r` - Request random number from ATECC608A
+
 - `q` - Quit application
 
-### As a Library
+### Mutual Authentication Demo
 
-```python
+```bash### As a Library
+
+# Option 1: Direct
+
+python -m host.mutual_auth_demo```python
+
 from host.serial_handler import SerialHandler
-from host.protocol import MessageType, Frame
 
-def on_frame(frame: Frame):
-    if frame.is_debug:
+# Option 2: Through debug.pyfrom host.protocol import MessageType, Frame
+
+python -m host.debug /dev/ttyACM1
+
+# Then type: ecdh_demodef on_frame(frame: Frame):
+
+```    if frame.is_debug:
+
         print(f"DEBUG: {frame.debug_text}")
-    else:
-        print(f"Received: {frame.msg_type.name}, payload: {len(frame.payload)} bytes")
 
-handler = SerialHandler(
+### Production Stub (Future Development)    else:
+
+```bash        print(f"Received: {frame.msg_type.name}, payload: {len(frame.payload)} bytes")
+
+python -m host.main /dev/ttyACM1
+
+```handler = SerialHandler(
+
     port="/dev/ttyACM0",
-    baudrate=115200,
+
+## Key Provisioning Workflow    baudrate=115200,
+
     on_frame=on_frame
-)
 
-handler.connect()
-handler.start()
+### First-Time Setup)
 
-# Send a message
-handler.send_frame(MessageType.H2T_TEST_RANDOM_REQUEST)
+```bash
 
-# ... later ...
-handler.stop()
-handler.disconnect()
+# 1. Start debug toolhandler.connect()
+
+python -m host.debug /dev/ttyACM1handler.start()
+
+
+
+# 2. Auto-provision (generates host keys, requests token key, exchanges)# Send a message
+
+> provisionhandler.send_frame(MessageType.H2T_TEST_RANDOM_REQUEST)
+
+
+
+# This creates:# ... later ...
+
+#   - host_permanent_privkey.pem (private key, keep secret!)handler.stop()
+
+#   - host_permanent_pubkey.bin (64-byte raw public key)handler.disconnect()
+
+#   - token_permanent_pubkey.bin (64-byte raw public key from token)```
+
 ```
 
 ## Architecture
 
+## Security Notes
+
 ### Components
 
-1. **protocol.py**: Protocol definitions (message types, constants, frame structure)
-2. **parser.py**: Stateful frame parser with byte-stuffing support
-3. **serial_handler.py**: Serial communication manager with background thread
-4. **main.py**: Application entry point and frame display logic
+1. **Key Storage**: 
 
-## Protocol Details
+   - `host_permanent_privkey.pem` contains your permanent private key1. **protocol.py**: Protocol definitions (message types, constants, frame structure)
+
+   - Keep this file secure - it's used for authentication2. **parser.py**: Stateful frame parser with byte-stuffing support
+
+3. **serial_handler.py**: Serial communication manager with background thread
+
+2. **Encryption**:4. **main.py**: Application entry point and frame display logic
+
+   - All POC/test encryption code has been removed
+
+   - Only ECDH-derived session keys are used## Protocol Details
+
+   - Random IVs generated via hardware RNG (Pico) and os.urandom() (host)
 
 ### Frame Structure
 
-```
-[SOF] [Type] [Length_LSB] [Length_MSB] [Payload...] [Checksum] [EOF]
-```
+3. **State Machine**:
+
+   - Protocol enforces state transitions```
+
+   - Out-of-order messages are rejected[SOF] [Type] [Length_LSB] [Length_MSB] [Payload...] [Checksum] [EOF]
+
+   - Encryption only active after channel verification (state >= 0x22)```
+
 
 - **SOF**: Start of Frame (0x7F)
 - **Type**: Message type (1 byte)
