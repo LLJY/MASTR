@@ -24,7 +24,7 @@ class CryptoInterface(ABC):
     def __init__(self):
         """Initialize crypto implementation"""
         self.session_key: Optional[bytes] = None
-        self.protocol_state: int = 0x00
+        self._should_encrypt: bool = False  # Controlled externally by protocol state
     
     # ========================================================================
     # Key Management
@@ -172,23 +172,24 @@ class CryptoInterface(ABC):
     # Protocol State
     # ========================================================================
     
-    def set_protocol_state(self, state: int):
+    def set_encryption_enabled(self, enabled: bool):
         """
-        Update protocol state.
+        Enable or disable encryption.
+        Called by protocol layer when state changes.
         
         Args:
-            state: New protocol state value
+            enabled: True to enable encryption, False to disable
         """
-        self.protocol_state = state
+        self._should_encrypt = enabled
     
     def should_encrypt(self) -> bool:
         """
-        Determine if current state requires encryption.
+        Determine if encryption should be used.
         
         Returns:
-            True if state >= 0x22 (after channel verification)
+            True if encryption is enabled
         """
-        return self.protocol_state >= 0x22
+        return self._should_encrypt
     
     # ========================================================================
     # Encryption/Decryption

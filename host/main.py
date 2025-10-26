@@ -140,7 +140,7 @@ class MASTRHost:
             on_frame=self.on_frame_received,
             on_error=self.on_error,
             on_raw_data=None,
-            crypto_handler=None  # We'll manage crypto ourselves
+            crypto_handler=self.crypto  # Serial layer handles encryption/decryption automatically
         )
     
     # ========================================================================
@@ -151,21 +151,13 @@ class MASTRHost:
         """
         Main frame handler - routes frames to appropriate handlers.
         
-        All frames are decrypted here if protocol state >= 0x22.
-        This includes debug messages, which are encrypted after channel establishment.
+        Note: Frames are already decrypted by the serial layer if protocol state >= 0x22.
+        The serial layer handles encryption/decryption transparently.
         """
         self.frame_count += 1
         
-        # Decrypt if needed (applies to ALL messages including debug)
+        # Payload is already decrypted by serial layer
         payload = frame.payload
-        if self.crypto.should_encrypt():
-            try:
-                payload = self.crypto.decrypt_payload(frame.payload)
-                if self.verbose:
-                    print(f"{Colors.YELLOW}[DECRYPTED]{Colors.RESET} {len(frame.payload)} -> {len(payload)} bytes")
-            except Exception as e:
-                print(f"{Colors.RED}[DECRYPT ERROR]{Colors.RESET} {e}")
-                return
         
         # Handle debug messages
         if frame.msg_type == MessageType.DEBUG_MSG:
@@ -207,7 +199,7 @@ class MASTRHost:
     # ========================================================================
     
     def _handle_debug_message(self, payload: bytes):
-        """Handle debug messages from token (already decrypted if needed)"""
+        """Handle debug messages from token (already decrypted by serial layer if needed)"""
         try:
             debug_text = payload.decode('utf-8', errors='replace')
             print(f"{Colors.ORANGE}[TOKEN DEBUG]{Colors.RESET} {debug_text}", end='')
@@ -224,25 +216,14 @@ class MASTRHost:
         self.ecdh_complete_event.set()
     
     def _handle_channel_verify_request(self, payload: bytes):
-        """Handle T2H_CHANNEL_VERIFY_REQUEST (encrypted ping)"""
-        # Update state to enable encryption
-        self.crypto.set_protocol_state(0x22)
-        self.protocol_state = 0x22
-        
-        # Decrypt the challenge
-        if self.crypto.should_encrypt():
-            try:
-                decrypted = self.crypto.decrypt_payload(payload)
-                if decrypted and len(decrypted) >= 4 and decrypted[:4] == b"ping":
-                    self.channel_challenge_received = decrypted
-                    self.challenge_event.set()
-                else:
-                    print(f"{Colors.RED}[ERROR]{Colors.RESET} Invalid challenge payload: {decrypted!r}")
-            except Exception as e:
-                print(f"{Colors.RED}[ERROR]{Colors.RESET} Failed to decrypt challenge: {e}")
+        """Handle T2H_CHANNEL_VERIFY_REQUEST (encrypted ping - already decrypted by serial layer)"""
+        # Note: Protocol state was already set to 0x22 after deriving session key
+        # Payload is already decrypted by serial layer
+        if len(payload) >= 4 and payload[:4] == b"ping":
+            self.channel_challenge_received = payload
+            self.challenge_event.set()
         else:
-            # Buffer for later if crypto not ready
-            self.buffered_challenge = payload
+            print(f"{Colors.RED}[ERROR]{Colors.RESET} Invalid challenge payload: {payload!r}")
     
     def _handle_token_pubkey_response(self, payload: bytes):
         """Handle T2H_DEBUG_GET_TOKEN_PUBKEY response"""
@@ -501,8 +482,10 @@ class MASTRHost:
             return False
         
         self.crypto.set_session_key(session_key)
-        self.crypto.set_protocol_state(0x21)  # ECDH complete, waiting for channel verify
-        self.protocol_state = 0x21
+        
+        # Enable encryption now that we have a session key
+        self.crypto.set_encryption_enabled(True)
+        self.protocol_state = 0x22
         
         print(f"   {Colors.GREEN}✓{Colors.RESET} Session key: {session_key.hex()}")
         
@@ -529,24 +512,17 @@ class MASTRHost:
         
         print(f"   {Colors.GREEN}✓{Colors.RESET} Received challenge: {self.channel_challenge_received!r}")
         
-        # Send encrypted pong response
-        print(f"\n9. Sending encrypted pong response...")
+        # Send pong response (will be encrypted automatically by serial layer)
+        print(f"\n9. Sending pong response (will be encrypted automatically)...")
         pong_payload = b"pong"
         
-        # Encrypt the pong response (state is 0x22, encryption required)
-        encrypted_pong = self.crypto.encrypt_payload(pong_payload)
-        if encrypted_pong is None:
-            print(f"   {Colors.RED}✗{Colors.RESET} Failed to encrypt pong")
-            return False
-        
-        if not self.handler.send_frame(MessageType.H2T_CHANNEL_VERIFY_RESPONSE.value, encrypted_pong):
+        if not self.handler.send_frame(MessageType.H2T_CHANNEL_VERIFY_RESPONSE.value, pong_payload):
             print(f"   {Colors.RED}✗{Colors.RESET} Failed to send response")
             return False
         
         print(f"   {Colors.GREEN}✓{Colors.RESET} Pong sent")
         
-        # Update state to "established"
-        self.crypto.set_protocol_state(0x24)
+        # Update state to "established" (encryption remains enabled)
         self.protocol_state = 0x24
         
         return True
@@ -604,16 +580,11 @@ class MASTRHost:
         print(f"   {Colors.GREEN}✓{Colors.RESET} Signature: {signature[:32].hex()}...")
         
         # Send H2T_INTEGRITY_RESPONSE: hash (32) + signature (64) = 96 bytes
-        print(f"\n14. Sending integrity response...")
+        # Serial layer will encrypt automatically since protocol state >= 0x22
+        print(f"\n14. Sending integrity response (will be encrypted automatically)...")
         payload = golden_hash + signature
         
-        # Encrypt the payload (we're in state 0x24, encryption is active)
-        encrypted_payload = self.crypto.encrypt_payload(payload)
-        if encrypted_payload is None:
-            print(f"   {Colors.RED}✗{Colors.RESET} Failed to encrypt payload")
-            return False
-        
-        if not self.handler.send_frame(MessageType.H2T_INTEGRITY_RESPONSE.value, encrypted_payload):
+        if not self.handler.send_frame(MessageType.H2T_INTEGRITY_RESPONSE.value, payload):
             print(f"   {Colors.RED}✗{Colors.RESET} Failed to send response")
             return False
         
@@ -628,9 +599,9 @@ class MASTRHost:
             print(f"   {Colors.RED}✗{Colors.RESET} Timeout waiting for BOOT_OK")
             return False
         
-        # Send acknowledgment
+        # Send acknowledgment (will be encrypted automatically by serial layer)
         print(f"\n16. Sending BOOT_OK acknowledgment...")
-        if not self.handler.send_frame(MessageType.H2T_BOOT_OK_ACK.value, self.crypto.encrypt_payload(b'')):
+        if not self.handler.send_frame(MessageType.H2T_BOOT_OK_ACK.value, b''):
             print(f"   {Colors.RED}✗{Colors.RESET} Failed to send ACK")
             return False
         

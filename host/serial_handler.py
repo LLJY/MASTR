@@ -13,6 +13,12 @@ class SerialHandler:
     """
     Manages serial communication with the token device.
     Runs a background thread to continuously read from the serial port.
+    
+    Handles encryption/decryption transparently at the serial layer:
+    - When sending: automatically encrypts payloads if protocol state >= 0x22
+    - When receiving: automatically decrypts payloads if protocol state >= 0x22
+    
+    This mirrors the C implementation in src/serial.c and src/crypt.c
     """
     
     def __init__(
@@ -142,18 +148,36 @@ class SerialHandler:
                 break
     
     def _handle_frame(self, frame: Frame):
-        """Internal frame handler that calls user callback"""
+        """
+        Internal frame handler that decrypts payload if needed, then calls user callback.
+        Automatically decrypts payload if protocol state >= 0x22.
+        """
+        # Decrypt payload if crypto is enabled and should decrypt
+        if self.crypto and self.crypto.should_encrypt():
+            try:
+                decrypted_payload = self.crypto.decrypt_payload(frame.payload)
+                # Create new frame with decrypted payload
+                frame = Frame(msg_type=frame.msg_type, payload=decrypted_payload)
+            except Exception as e:
+                print(f"[SERIAL DECRYPT ERROR] {e}")
+                import traceback
+                traceback.print_exc()
+                if self.on_error:
+                    self.on_error(ValueError(f"Decryption failed: {e}"))
+                return
+        
+        # Call user callback with (possibly decrypted) frame
         if self.on_frame:
             self.on_frame(frame)
     
     def send_frame(self, msg_type: int, payload: bytes = b'') -> bool:
         """
         Send a frame to the token with proper byte stuffing.
-        Encrypts payload if crypto handler is configured.
+        Automatically encrypts payload if protocol state >= 0x22.
         
         Args:
             msg_type: Message type byte
-            payload: Payload bytes (will be encrypted if crypto is enabled)
+            payload: PLAINTEXT payload bytes (will be encrypted automatically if needed)
             
         Returns:
             True if sent successfully
@@ -164,15 +188,13 @@ class SerialHandler:
         from .protocol import SOF_BYTE, EOF_BYTE, ESC_BYTE, ESC_SUB_SOF, ESC_SUB_EOF, ESC_SUB_ESC
         
         try:
-            # Encrypt payload if crypto handler is available
-            if self.crypto:
+            # Automatically encrypt payload if crypto handler is available and should encrypt
+            if self.crypto and self.crypto.should_encrypt():
                 encrypted_payload = self.crypto.encrypt_payload(payload)
                 if encrypted_payload is None:
-                    # Encryption failed, but continue with unencrypted
-                    # (allows graceful degradation during testing)
-                    pass
-                else:
-                    payload = encrypted_payload
+                    # Encryption failed - this is a critical error when encryption is required
+                    raise ValueError("Encryption required but failed")
+                payload = encrypted_payload
             
             # Build frame: Type(1) + Length(2) + Payload(N) + Checksum(1)
             payload_len = len(payload)
