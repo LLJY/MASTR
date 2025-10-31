@@ -211,7 +211,8 @@ bool decrypt_frame_if_needed(
 ) {
     extern protocol_state_t protocol_state;
     
-    bool should_decrypt = (protocol_state.current_state >= 0x22);
+    // Use decoupled encryption flag instead of state
+    bool should_decrypt = protocol_state.is_encrypted;
     
     if (should_decrypt) {
         if (!aes_gcm_decrypt(frame_buffer, frame_len, protocol_state.aes_session_key,
@@ -243,7 +244,8 @@ bool encrypt_frame_if_needed(
     
     extern protocol_state_t protocol_state;
     
-    bool should_encrypt = (protocol_state.current_state >= 0x22);
+    // Use decoupled encryption flag instead of state
+    bool should_encrypt = protocol_state.is_encrypted;
     
     if (should_encrypt) {
         if (!aes_gcm_encrypt(frame, frame_len, protocol_state.aes_session_key,

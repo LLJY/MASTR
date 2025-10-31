@@ -49,6 +49,32 @@ void serial_task(void *params) {
     }
 }
 
+// Watchdog task - monitors session timeout and triggers re-attestation
+void watchdog_task(void *params) {
+    (void)params;  // Unused parameter
+    
+    print_dbg("Watchdog task started\n");
+    
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(1000));  // Check every 1 second
+        
+        protocol_state.last_watchdog_check = time_us_64();
+        
+        // Skip watchdog if in permanent halt state
+        if (protocol_state.in_halt_state) {
+            continue;
+        }
+        
+        // Only monitor timeout when in runtime state (0x40)
+        if (protocol_state.current_state == 0x40) {
+            if (!protocol_is_session_valid()) {
+                print_dbg("WATCHDOG: Session timeout detected - triggering re-attestation\n");
+                protocol_trigger_reattestation();
+            }
+        }
+    }
+}
+
 int main() {
     stdio_init_all();
     
@@ -88,7 +114,7 @@ int main() {
     // High priority ensures protocol processing isn't blocked by web server.
     TaskHandle_t serial_task_handle;
     xTaskCreate(
-        serial_task,                        
+        serial_task,
         "Serial",                           // Task name
         DEFAULT_STACK_SIZE,                 // Stack size (words, not bytes)
         NULL,                               // Parameters
@@ -96,14 +122,31 @@ int main() {
         &serial_task_handle                 // Task handle
     );
     
+    // Create the watchdog task (high priority for session monitoring)
+    TaskHandle_t watchdog_task_handle;
+    xTaskCreate(
+        watchdog_task,
+        "Watchdog",                         // Task name
+        DEFAULT_STACK_SIZE,                 // Stack size
+        NULL,                               // Parameters
+        configMAX_PRIORITIES - 5,           // High priority (just below serial)
+        &watchdog_task_handle               // Task handle
+    );
+    
     // Initialize serial subsystem with task handle for notifications
     serial_init(serial_task_handle);
 
-    // replace with protocol init function
+    // Initialize protocol state
     protocol_state.protocol_begin_timestamp = time_us_64();
-
-    // init protocol by starting it at 0x20 (the correct initial state)
-    protocol_state.current_state = H2T_ECDH_SHARE;
+    protocol_state.current_state = H2T_ECDH_SHARE;  // Start at ECDH state (0x20)
+    
+    // Initialize session management
+    protocol_state.is_encrypted = false;         // Encryption disabled until first ECDH
+    protocol_state.session_valid = false;        // No valid session yet
+    protocol_state.session_start_timestamp = 0;
+    protocol_state.session_timeout_ms = 30000;   // Default 30 second timeout
+    protocol_state.last_watchdog_check = 0;
+    protocol_state.in_halt_state = false;        // Not in halt state
 
     // TODO check if the token has been provisioned, if not, do special magic to
     // start the web server in a special admin mode.

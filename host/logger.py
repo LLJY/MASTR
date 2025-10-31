@@ -21,6 +21,9 @@ class Logger:
     Provides consistent formatting for all output types.
     """
     
+    # Class variable for verbose mode
+    verbose: bool = False
+    
     @staticmethod
     def success(message: str) -> None:
         """Print success message with green checkmark"""

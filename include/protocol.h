@@ -192,6 +192,14 @@ typedef struct{
     uint32_t hb_nonce;
     uint64_t last_hb_timstamp;
 
+    // Session management - decoupled from state machine
+    bool is_encrypted;                   // Once true, always encrypted (even during re-attestation)
+    bool session_valid;                  // Current session validity
+    uint64_t session_start_timestamp;    // When current session began
+    uint32_t session_timeout_ms;         // Configurable timeout (default: 30000ms = 30s)
+    uint64_t last_watchdog_check;        // Last watchdog execution timestamp
+    bool in_halt_state;                  // Permanent T2H_INTEGRITY_FAIL_HALT spam mode
+
 } protocol_state_t;
 
 // Global protocol state (defined in protocol.c)
@@ -203,4 +211,14 @@ void unprovision_protocol();
 bool protocol_check_provisioned();
 void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_t len);
 void send_channel_verification_challenge();
+
+// Session management functions
+void protocol_invalidate_session(void);
+void protocol_trigger_reattestation(void);
+bool protocol_is_session_valid(void);
+void protocol_enter_halt_spam_state(void);
+
+// Watchdog task
+void watchdog_task(void *params);
+
 #endif

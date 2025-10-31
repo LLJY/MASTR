@@ -50,6 +50,7 @@ SWITCHING CRYPTO BACKENDS:
 """
 
 import sys
+import os
 import argparse
 import time
 import threading
@@ -61,6 +62,7 @@ from .parser import FrameParserError, ChecksumError, ProtocolError
 from .crypto import NaiveCrypto
 from .crypto_interface import CryptoInterface
 from .logger import Logger, Colors
+from .hybrid_key_storage import HybridKeyStorage
 
 
 class MASTRHost:
@@ -79,7 +81,7 @@ class MASTRHost:
         exit_code = host.run()
     """
     
-    def __init__(self, port: str, baudrate: int = 115200, crypto: Optional[CryptoInterface] = None, verbose: bool = False, auto_provision: bool = False):
+    def __init__(self, port: str, baudrate: int = 115200, crypto: Optional[CryptoInterface] = None, verbose: bool = False, auto_provision: bool = False, skip_key_storage: bool = False, debug_handover: bool = False):
         """
         Initialize the MASTR host.
         
@@ -89,11 +91,15 @@ class MASTRHost:
             crypto: Crypto implementation (defaults to NaiveCrypto)
             verbose: Enable verbose output
             auto_provision: Automatically provision keys and golden hash if True
+            skip_key_storage: Skip storing session key for runtime (testing only)
+            debug_handover: Simulate initramfs->systemd handover for testing
         """
         self.port = port
         self.baudrate = baudrate
         self.verbose = verbose
         self.auto_provision = auto_provision
+        self.skip_key_storage = skip_key_storage
+        self.debug_handover = debug_handover
         self.frame_count = 0
         self.error_count = 0
         
@@ -122,6 +128,13 @@ class MASTRHost:
         self.integrity_challenge_event = threading.Event()
         self.received_nonce = None
         self.boot_ok_event = threading.Event()
+        
+        # Session management for re-attestation
+        self.session_timeout = 30  # seconds (configurable)
+        self.session_start_time = None
+        self.watchdog_thread = None
+        self.watchdog_running = False
+        self.in_reattestation = False
         
         self.handler = SerialHandler(
             port=port,
@@ -168,6 +181,12 @@ class MASTRHost:
         
         elif frame.msg_type == MessageType.T2H_BOOT_OK:
             self._handle_boot_ok(payload)
+        
+        elif frame.msg_type == MessageType.T2H_ECDH_SHARE:
+            # Receiving T2H_ECDH_SHARE during runtime means re-attestation needed
+            # This is handled by the debug handover loop or ignored in normal mode
+            if self.verbose:
+                Logger.warning("Received T2H_ECDH_SHARE during runtime (re-attestation signal)")
         
         elif frame.msg_type == MessageType.T2H_ERROR:
             self._handle_error(payload)
@@ -468,10 +487,9 @@ class MASTRHost:
             Logger.substep(f"{Colors.RED}✗{Colors.RESET} Failed to derive session key")
             return False
         
-        self.crypto.set_session_key(session_key)
-        
-        # Enable encryption now that we have a session key
-        self.crypto.set_encryption_enabled(True)
+        # Don't set session key yet - keep using old key for ECDH
+        # Will switch to new key right before ping/pong
+        self.derived_session_key = session_key  # Store for later
         self.protocol_state = 0x22
         
         Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Session key: {session_key.hex()}")
@@ -482,17 +500,31 @@ class MASTRHost:
     # PHASE 1.5: CHANNEL VERIFICATION
     # ========================================================================
     
-    def _perform_channel_verification(self) -> bool:
+    def _perform_channel_verification(self, step_offset: int = 0) -> bool:
         """
         Execute channel verification (encrypted ping/pong)
+        
+        Args:
+            step_offset: Starting step number for logging
         
         Returns:
             True if verification successful, False otherwise
         """
-        Logger.section("Channel Verification")
+        if step_offset == 0:
+            Logger.section("Channel Verification")
+        
+        # CRITICAL: Switch to new session key RIGHT BEFORE ping/pong
+        # (ECDH messages were encrypted with old key, ping/pong uses new key)
+        if hasattr(self, 'derived_session_key'):
+            Logger.info(f"Switching to new session key: {self.derived_session_key.hex()}")
+            self.crypto.set_session_key(self.derived_session_key)
+            self.crypto.set_encryption_enabled(True)
+            delattr(self, 'derived_session_key')  # Clean up
+        
+        step_num = 8 + step_offset
         
         # Wait for encrypted ping challenge
-        Logger.step(8, "Waiting for encrypted ping challenge (timeout: 5s)...")
+        Logger.step(step_num, "Waiting for encrypted ping challenge (timeout: 5s)...")
         if not self.challenge_event.wait(timeout=5.0):
             Logger.substep(f"{Colors.RED}✗{Colors.RESET} Timeout waiting for challenge")
             return False
@@ -598,6 +630,182 @@ class MASTRHost:
         
         return True
     
+    # ========================================================================
+    # SESSION KEY STORAGE FOR RUNTIME
+    # ========================================================================
+    
+    def _store_session_key_for_runtime(self) -> bool:
+        """
+        Store session key in kernel keyring for runtime phase.
+        
+        The runtime heartbeat daemon will retrieve this key to maintain
+        encrypted communication after initramfs exits and system boots.
+        
+        Uses kernel keyring only (TPM2 removed per requirements).
+        
+        Returns:
+            True if stored successfully, False otherwise
+        """
+        Logger.section("Storing Session Key for Runtime")
+        
+        session_key = self.crypto.get_session_key()
+        if not session_key:
+            Logger.error("No session key available")
+            return False
+        
+        if len(session_key) != 16:
+            Logger.error(f"Invalid session key length: {len(session_key)} bytes")
+            return False
+        
+        Logger.info(f"Session key to store: {session_key.hex()}")
+        
+        # Use kernel keyring only
+        from .keyring_storage import KeyringStorage
+        storage = KeyringStorage()
+        
+        if not storage.is_available():
+            Logger.error("Kernel keyring not available")
+            Logger.error("Cannot store session key for runtime phase!")
+            return False
+        
+        if storage.store_session_key(session_key):
+            Logger.success("Session key stored in kernel keyring")
+            Logger.info("Runtime heartbeat daemon will retrieve this key")
+            return True
+    
+    # ========================================================================
+    # SESSION WATCHDOG & RE-ATTESTATION
+    # ========================================================================
+    
+    def _start_session_watchdog(self) -> None:
+        """
+        Start background watchdog thread for session timeout monitoring.
+        Watchdog checks every second if session has timed out.
+        """
+        Logger.info("Starting session watchdog thread")
+        self.watchdog_running = True
+        self.watchdog_thread = threading.Thread(
+            target=self._watchdog_loop,
+            daemon=True,
+            name="SessionWatchdog"
+        )
+        self.watchdog_thread.start()
+    
+    def _stop_session_watchdog(self) -> None:
+        """Stop the session watchdog thread"""
+        if self.watchdog_running:
+            Logger.info("Stopping session watchdog")
+            self.watchdog_running = False
+            if self.watchdog_thread:
+                self.watchdog_thread.join(timeout=2.0)
+    
+    def _watchdog_loop(self) -> None:
+        """
+        Background watchdog loop - monitors session timeout.
+        Runs every second checking if session has expired.
+        """
+        while self.watchdog_running:
+            time.sleep(1)  # Check every second
+            
+            # Skip if no active session
+            if self.session_start_time is None:
+                continue
+            
+            # Skip if already in re-attestation
+            if self.in_reattestation:
+                continue
+                
+            # Check if session has timed out
+            elapsed = time.time() - self.session_start_time
+            
+            if elapsed >= self.session_timeout:
+                Logger.warning(
+                    f"Session timeout ({self.session_timeout}s elapsed) - "
+                    f"triggering re-attestation"
+                )
+                self._trigger_reattestation()
+    
+    def _trigger_reattestation(self) -> None:
+        """
+        Trigger re-attestation cycle.
+        Invalidates current session and performs full ECDH + integrity verification.
+        """
+        if self.in_reattestation:
+            Logger.warning("Re-attestation already in progress")
+            return
+        
+        self.in_reattestation = True
+        
+        try:
+            Logger.section("Re-Attestation Cycle")
+            
+            # Step 1: Invalidate current session
+            Logger.step(1, "Invalidating current session")
+            self.session_start_time = None
+            Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Session invalidated")
+            
+            # Note: Keep is_encrypted = True to maintain encryption during re-attestation
+            # The token will also keep encryption enabled with old key until new one derived
+            
+            # Step 2: Perform new ECDH handshake
+            Logger.step(2, "Performing ECDH handshake")
+            if not self._perform_ecdh_handshake():
+                Logger.error("Re-attestation ECDH failed")
+                self.in_reattestation = False
+                return
+            
+            # Step 3: Perform channel verification
+            Logger.step(3, "Verifying encrypted channel")
+            if not self._perform_channel_verification():
+                Logger.error("Re-attestation channel verification failed")
+                self.in_reattestation = False
+                return
+            
+            # Step 4: Perform integrity verification
+            Logger.step(4, "Verifying host integrity")
+            if not self._perform_integrity_verification():
+                Logger.error("Re-attestation integrity check failed")
+                self.in_reattestation = False
+                return
+            
+            # Step 5: Restart session timer
+            self.session_start_time = time.time()
+            Logger.success(f"Re-attestation complete - new session established (timeout: {self.session_timeout}s)")
+            
+        finally:
+            self.in_reattestation = False
+    
+    def _debug_handover_loop(self) -> int:
+        """
+        Debug handover to runtime_heartbeat service.
+        
+        Simulates systemd handing off from attestation to runtime service.
+        """
+        Logger.section("Debug Handover to Runtime")
+        Logger.info("Simulating initramfs->systemd handover")
+        Logger.info("Waiting 3 seconds...")
+        time.sleep(3)
+        
+        # Stop watchdog and disconnect our handler
+        self._stop_session_watchdog()
+        self.handler.stop()
+        self.handler.disconnect()
+        
+        # Launch runtime heartbeat as subprocess (like systemd would)
+        Logger.info("Launching runtime heartbeat service...")
+        Logger.info("Command: python -m host.runtime_heartbeat /dev/ttyACM0 --debug-no-shutdown")
+        
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, '-m', 'host.runtime_heartbeat', self.port,
+             '--interval', '5',
+             '--timeout', '3',
+             '--no-lkrg',
+             '--debug-no-shutdown']
+        )
+        
+        Logger.info(f"Runtime heartbeat exited with code {result.returncode}")
+        return result.returncode
     
     # ========================================================================
     # MAIN PROTOCOL EXECUTION
@@ -658,29 +866,44 @@ class MASTRHost:
             # Success!
             Logger.success_header("✅ Integrity verification complete!")
             
-            # ================================================================
-            # TODO: Phase 3 - Runtime Heartbeat
-            # ================================================================
-            # When implementing Phase 3, add:
-            #   1. _handle_heartbeat_ack() handler
-            #   2. _send_heartbeat() method called periodically
-            #   3. Add case for T2H_HEARTBEAT_ACK in on_frame_received()
-            #   4. Watchdog timer to detect missed heartbeats
-            #
-            # heartbeat_thread = threading.Thread(target=self._heartbeat_loop)
-            # heartbeat_thread.start()
+            # Start session timer and watchdog
+            self.session_start_time = time.time()
+            self._start_session_watchdog()
+            Logger.info(f"Session established with {self.session_timeout}s timeout")
             
-            Logger.info("Keeping connection open...")
-            Logger.info("Press Ctrl+C to exit")
+            # Store session key for runtime phase (unless skipped for testing)
+            if not self.skip_key_storage:
+                if not self._store_session_key_for_runtime():
+                    Logger.error("Failed to store session key for runtime")
+                    return 1
+                
+                # Check if debug handover mode is enabled
+                if self.debug_handover:
+                    Logger.section("Debug Handover Simulation")
+                    Logger.info("Simulating initramfs->systemd handover")
+                    
+                    # Run re-attestation loop to simulate systemd restart behavior
+                    return self._debug_handover_loop()
+                else:
+                    # Normal mode: Exit cleanly - initramfs will continue boot
+                    Logger.info("Protocol phases complete - exiting for boot continuation")
+                    Logger.info("Runtime heartbeat will be started by systemd")
+            else:
+                Logger.warning("Skipping key storage (testing mode)")
+                Logger.info("Keeping connection open for testing...")
+                Logger.info("Press Ctrl+C to exit")
+                
+                # Keep connection open for testing
+                while self.handler.is_connected and self.handler._running:
+                    time.sleep(0.1)
             
-            # Keep connection open
-            while self.handler.is_connected and self.handler._running:
-                time.sleep(0.1)
+            return 0
         
         except KeyboardInterrupt:
             print(f"\n\n{Colors.YELLOW}Shutting down...{Colors.RESET}")
         
         finally:
+            self._stop_session_watchdog()
             self.handler.stop()
             self.handler.disconnect()
             
@@ -735,6 +958,16 @@ def main():
         action='store_true',
         help='Automatically provision token keys and golden hash'
     )
+    parser.add_argument(
+        '--skip-key-storage',
+        action='store_true',
+        help='Skip storing session key for runtime (testing only)'
+    )
+    parser.add_argument(
+        '--debug-handover',
+        action='store_true',
+        help='Simulate initramfs->systemd handover (testing only)'
+    )
     
     args = parser.parse_args()
     
@@ -770,7 +1003,9 @@ def main():
         baudrate=args.baudrate,
         crypto=crypto,
         verbose=args.verbose,
-        auto_provision=args.provision
+        auto_provision=args.provision,
+        skip_key_storage=args.skip_key_storage,
+        debug_handover=args.debug_handover
     )
     
     return host.run()
