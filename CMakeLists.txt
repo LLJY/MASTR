@@ -102,11 +102,44 @@ set_target_properties(cryptoauth PROPERTIES SOURCES "${CRYPTOAUTHLIB_SOURCES}")
 
 include(example_auto_set_url.cmake)
 
-add_compile_options(-Wall
-        -Wno-format          # int != int32_t as far as the compiler is concerned because gcc has int32_t as long int
-        -Wno-unused-function # we have some for the docs that aren't called
-        -O3 #optimize for SPEED
-        )
+# Performance optimization flags
+add_compile_options(
+    -Wall
+    -Wno-format          # int != int32_t as far as the compiler is concerned because gcc has int32_t as long int
+    -Wno-unused-function # we have some for the docs that aren't called
+    -O3                  
+    -ffunction-sections  
+    -fdata-sections      
+)
+
+add_link_options(-Wl,--gc-sections)
+
+# Platform-specific CPU optimizations
+if(PICO_PLATFORM STREQUAL "rp2040")
+    add_compile_options(
+        -mcpu=cortex-m0plus
+        -mthumb
+    )
+elseif(PICO_PLATFORM STREQUAL "rp2350-arm-s")
+    add_compile_options(
+        -mcpu=cortex-m33
+        -mthumb
+    )
+elseif(PICO_PLATFORM STREQUAL "rp2350-riscv")
+    add_compile_options(
+        -march=rv32imac
+        -mabi=ilp32
+    )
+endif()
+
+# Link-time optimization and dead code elimination
+add_link_options(
+    -Wl,--gc-sections     # Remove unused sections
+    -Wl,--print-memory-usage # Show memory usage after linking
+)
+
+# Don't enable LTO globally - we'll enable it per-target to avoid library issues
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
 
 # Enable DEBUG mode for all builds
 add_compile_definitions(DEBUG)
@@ -122,6 +155,7 @@ add_executable(pico_project_template
     src/crypt.c
     src/hal/hal_pico_i2c.c
 )
+
 # Link to pico_stdlib
 target_link_libraries(pico_project_template
     pico_stdlib
