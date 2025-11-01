@@ -34,7 +34,17 @@ void reset_mocks(void) {
     memset(last_payload, 0, sizeof(last_payload));
     last_len = 0;
     last_msg_type = 0;
-    mock_send_shutdown_signal_called = false; // <-- Reset the new spy
+    mock_send_shutdown_signal_called = false;
+}
+
+// Test hook implementation - called by real handle_validated_message
+void test_hook_handle_validated_message_called(message_type_t msg_type, uint8_t* payload, uint16_t len) {
+    mock_handle_validated_message_called = true;
+    last_msg_type = msg_type;
+    if (payload && len > 0 && len <= MAX_PAYLOAD_SIZE) {
+        memcpy(last_payload, payload, len);
+    }
+    last_len = len;
 }
 
 // Helper to preload the read buffer for receive tests
@@ -86,16 +96,6 @@ void tud_cdc_write_flush(void) {
     // Does nothing in mock.
 }
 
-// Spy for the protocol layer handler
-void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_t len) {
-    mock_handle_validated_message_called = true;
-    last_msg_type = msg_type;
-    if (len > 0) {
-        memcpy(last_payload, payload, len);
-    }
-    last_len = len;
-}
-
 // Mock crypto functions (for unit tests, encryption is passthrough)
 bool decrypt_frame_if_needed(
     uint8_t* frame_buffer,
@@ -128,3 +128,18 @@ void print_dbg(const char *format, ...) {
     // In unit tests, suppress debug output
     (void)format;
 }
+
+// Mock random number generation
+uint32_t get_rand_32(void) {
+    static uint32_t counter = 0x12345678;
+    return counter++;
+}
+
+// Mock delay function
+void pico_delay_ms(uint32_t ms) {
+    (void)ms;
+    // In tests, do nothing (time is controlled by mock_time)
+}
+
+// Note: send_message is provided by real serial.c
+// Note: handle_validated_message is provided by real protocol.c

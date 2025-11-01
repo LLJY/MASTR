@@ -23,9 +23,15 @@ uint16_t get_last_len(void);
 void get_last_payload(uint8_t* buffer);
 bool was_shutdown_signal_called(void);
 
+// Sent message inspection
+uint8_t get_last_sent_msg_type(void);
+uint16_t get_last_sent_len(void);
+void get_last_sent_payload(uint8_t* buffer);
 
 // From pico/stdlib.h
 int getchar_timeout_us(uint32_t timeout_us);
+uint32_t get_rand_32(void);
+void pico_delay_ms(uint32_t ms);
 
 // From tusb.h (TinyUSB)
 void tud_cdc_write_char(char c);

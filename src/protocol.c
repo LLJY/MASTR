@@ -1,10 +1,15 @@
 #include "protocol.h"
 #include "serial.h"
 #include "crypt.h"
+#include <string.h>
+
+#ifndef UNIT_TEST
 #include "pico/rand.h"
 #include "hal/hal_pico_i2c.h"
-#ifndef UNIT_TEST
 #include "cryptoauthlib.h"
+#else
+// Mock declarations for unit tests
+#include "mock_time.h"
 #endif
 
 // Global protocol state
@@ -68,7 +73,6 @@ void protocol_invalidate_session(void) {
  * This signals to the host that re-attestation is needed.
  */
 void protocol_trigger_reattestation(void) {
-    #ifndef UNIT_TEST
     print_dbg("Triggering re-attestation cycle\n");
     
     // First invalidate session (keeps old key for encrypted communication)
@@ -80,6 +84,7 @@ void protocol_trigger_reattestation(void) {
         return;
     }
     
+    #ifndef UNIT_TEST
     // Sign new ephemeral pubkey
     uint8_t token_signature[64];
     if (!ecdh_sign_with_permanent_key(protocol_state.et_pubkey, 64, token_signature)) {
@@ -94,10 +99,10 @@ void protocol_trigger_reattestation(void) {
     send_message(T2H_ECDH_SHARE, response, 128);
     
     print_dbg("Sent T2H_ECDH_SHARE for re-attestation (new ephemeral key)\n");
+    #endif
     
     // Wait at state 0x21 for host's H2T_ECDH_SHARE
     protocol_state.current_state = 0x21;
-    #endif
 }
 
 /**
@@ -127,11 +132,13 @@ void protocol_enter_halt_spam_state(void) {
     print_dbg("=== ENTERING PERMANENT HALT STATE ===\n");
     print_dbg("INTEGRITY FAILURE DETECTED - NO RECOVERY\n");
     
+    #ifndef UNIT_TEST
     // Spam T2H_INTEGRITY_FAIL_HALT indefinitely
     while (true) {
         send_message(T2H_INTEGRITY_FAIL_HALT, NULL, 0);
         vTaskDelay(pdMS_TO_TICKS(1000));  // Spam every second
     }
+    #endif
 }
 
 
@@ -141,16 +148,26 @@ void set_protocol_initial_state(){
     protocol_state.protocol_begin_timestamp = time_us_64();
 }
 
+#ifdef UNIT_TEST
+// Test hook to notify tests that handler was called
+extern void test_hook_handle_validated_message_called(message_type_t msg_type, uint8_t* payload, uint16_t len);
+#endif
+
 /**
  * Handles incoming protocol messages after frame validation and decryption.
  * Enforces state machine progression and rejects out-of-order requests.
- * 
+ *
  * @param msg_type Message type from protocol enum
  * @param payload Decrypted message payload
  * @param len Payload length in bytes
  */
 void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_t len)
 {
+    #ifdef UNIT_TEST
+    // Notify tests that handler was called
+    test_hook_handle_validated_message_called(msg_type, payload, len);
+    #endif
+    
     #ifdef DEBUG
     print_dbg("Received message type: 0x%02X, length: %d\n", msg_type, len);
     #endif
@@ -164,7 +181,6 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                 send_shutdown_signal();
                 break;
             }
-            #ifndef UNIT_TEST
             {
                 if (len != 128) {
                     print_dbg("ERROR: Invalid ECDH share length: %d\n", len);
@@ -190,6 +206,7 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                 
                 memcpy(protocol_state.received_host_eph_pubkey, host_eph_pubkey, 64);
                 
+                #ifndef UNIT_TEST
                 // Only generate new ephemeral key if host-initiated (state 0x20)
                 // At state 0x21 (token-initiated), we already have our key
                 if (protocol_state.current_state == 0x20) {
@@ -223,7 +240,7 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                     break;
                 }
                 
-                // Check if we're responding to host-iniiated ECDH (state 0x20)
+                // Check if we're responding to host-initiated ECDH (state 0x20)
                 // or completing token-initiated ECDH (state 0x21)
                 if (protocol_state.current_state == 0x20) {
                     // Host-initiated: Send our ECDH share
@@ -232,21 +249,31 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                     memcpy(response + 64, token_signature, 64);
                     send_message(T2H_ECDH_SHARE, response, 128);
                     
-                    protocol_state.current_state = 0x21;
                     print_dbg("Sent T2H_ECDH_SHARE (host-initiated ECDH)\n");
                 } else {
                     // Token-initiated (state 0x21): We already sent T2H_ECDH_SHARE
                     // Just derive the new key and proceed
                     print_dbg("Derived new session key (token-initiated ECDH)\n");
                 }
+                #endif
+                
+                // State transition (moved outside UNIT_TEST guard)
+                if (protocol_state.current_state == 0x20) {
+                    protocol_state.current_state = 0x21;
+                }
+                
+                #ifndef UNIT_TEST
                 
                 // Enable encryption flag once (stays true even during re-attestation)
                 protocol_state.is_encrypted = true;
                 
                 pico_delay_ms(1000);
                 send_channel_verification_challenge();
+                #else
+                // UNIT_TEST path: Set encryption flag
+                protocol_state.is_encrypted = true;
+                #endif
             }
-            #endif
             break;
         
         case H2T_CHANNEL_VERIFY_RESPONSE:
@@ -255,7 +282,6 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                 send_shutdown_signal();
                 break;
             }
-            #ifndef UNIT_TEST
             {
                 if (len < 4) {
                     send_shutdown_signal();
@@ -269,10 +295,15 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                 
                 // Advance to phase 2 - integrity verification
                 protocol_state.current_state = 0x30;
+                
+                #ifndef UNIT_TEST
                 protocol_state.integrity_challenge_nonce = get_rand_32();
                 send_message(T2H_INTEGRITY_CHALLENGE, (uint8_t*)&protocol_state.integrity_challenge_nonce, 4);
+                #else
+                // In unit tests, just set a deterministic nonce
+                protocol_state.integrity_challenge_nonce = 0x12345678;
+                #endif
             }
-            #endif
             break;
         
         // ===== PHASE 2: INTEGRITY & BOOT =====
@@ -381,6 +412,7 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
             break;
         
         // ===== TESTING & DEBUG DO NOT INCLUDE IN PRODUCTION. =====
+        #ifdef DEBUG
         case H2T_TEST_RANDOM_REQUEST:
             #ifndef UNIT_TEST
             {
@@ -472,8 +504,9 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
             }
             #endif
             break;
+        #endif  // DEBUG
         
-        // ===== INVALID MESSAGE TYPES =====h
+        // ===== INVALID MESSAGE TYPES =====
         // All other message types are T2H (Token to Host), so they should
         // not be received by the Token. This is an error condition.
         default:
