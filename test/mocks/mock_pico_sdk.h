@@ -2,12 +2,15 @@
 #define MOCK_PICO_SDK_H
 
 #include <stdint.h>
-#include "protocol.h" // <-- Include the missing header
+#include <stdbool.h>
+
+// --- Mock FreeRTOS Types ---
+typedef void* TaskHandle_t;
+
+#include "protocol.h" // <-- Include after defining TaskHandle_t
 
 // --- Mocked Constants ---
 #define PICO_ERROR_TIMEOUT (-1)
-
-#include <stdbool.h>
 
 // --- Test Helper/Spy Prototypes ---
 void reset_mocks(void);

@@ -116,6 +116,19 @@ static void rx_buffer_fill() {
     #endif
 }
 
+#ifdef UNIT_TEST
+// Test helper to inject data into rx_buffer for unit tests
+void test_inject_rx_data(const uint8_t* data, uint16_t len) {
+    for (uint16_t i = 0; i < len; i++) {
+        uint16_t next_write = (rx_write_idx + 1) % RX_BUFFER_SIZE;
+        if (next_write != rx_read_idx) {
+            rx_buffer[rx_write_idx] = data[i];
+            rx_write_idx = next_write;
+        }
+    }
+}
+#endif
+
 void process_serial_data()
 {
     #ifndef UNIT_TEST
@@ -363,6 +376,7 @@ void send_message(uint8_t msg_type, uint8_t *payload, uint16_t len)
     tud_cdc_write_flush();
 }
 
+#ifndef UNIT_TEST
 // Debug print function that sends via DEBUG_MSG protocol
 // Safe to call even when DEBUG is not defined - will do nothing in that case
 void print_dbg(const char *format, ...) {
@@ -379,7 +393,6 @@ void print_dbg(const char *format, ...) {
     #endif
 }
 
-#ifndef UNIT_TEST
 void send_shutdown_signal()
 {
     print_dbg("SHUTDOWN: Integrity failure detected");

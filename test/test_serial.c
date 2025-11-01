@@ -1,7 +1,8 @@
+#include "unity.h"
+#include "mock_pico_sdk.h"  // Must be before serial.h to define TaskHandle_t
 #include "constants.h"
 #include "protocol.h"
 #include "serial.h"
-#include "unity.h"
 #include <stdbool.h>
 #include <string.h>
 
@@ -106,9 +107,7 @@ void test_receive_simple_packet(void) {
 
     // Act
     load_mock_buffer(frame_on_wire, sizeof(frame_on_wire));
-    while (get_mock_buffer_len() > 0) {
-        process_serial_data();
-    }
+    process_serial_data();
     get_last_payload(received_payload);
 
     // Assert
@@ -137,7 +136,7 @@ void test_receive_stuffed_packet(void) {
     
     // Act
     load_mock_buffer(frame_on_wire, sizeof(frame_on_wire));
-    while(get_mock_buffer_len() > 0) process_serial_data();
+    process_serial_data();
     get_last_payload(received_payload);
 
     // Assert
@@ -153,7 +152,7 @@ void test_receive_zero_length_packet(void) {
 
     // Act
     load_mock_buffer(frame_on_wire, sizeof(frame_on_wire));
-    while(get_mock_buffer_len() > 0) process_serial_data();
+    process_serial_data();
 
     // Assert
     TEST_ASSERT_TRUE(was_handler_called());
@@ -164,13 +163,13 @@ void test_receive_zero_length_packet(void) {
 void test_ignore_bytes_before_SOF(void) {
     // Arrange
     uint8_t original_payload[] = {0x01};
-    uint8_t checksum = DEBUG_MSG + 0x00 + 0x01 + 0x01;
-    uint8_t frame_on_wire[] = { 0xDE, 0xAD, 0xBE, 0xEF, /* Garbage */ SOF_BYTE, DEBUG_MSG, 0x00, 0x01, 0x01, checksum, EOF_BYTE };
+    uint8_t checksum = H2T_HEARTBEAT + 0x00 + 0x01 + 0x01;
+    uint8_t frame_on_wire[] = { 0xDE, 0xAD, 0xBE, 0xEF, /* Garbage */ SOF_BYTE, H2T_HEARTBEAT, 0x00, 0x01, 0x01, checksum, EOF_BYTE };
     uint8_t received_payload[1] = {0};
 
     // Act
     load_mock_buffer(frame_on_wire, sizeof(frame_on_wire));
-    while(get_mock_buffer_len() > 0) process_serial_data();
+    process_serial_data();
     get_last_payload(received_payload);
     
     // Assert
@@ -184,12 +183,12 @@ void test_ignore_bytes_before_SOF(void) {
 
 void test_reject_bad_checksum(void) {
     // Arrange
-    uint8_t checksum = H2T_CHANNEL_VERIFY_REQUEST + 0x00 + 0x01 + 0xAB;
-    uint8_t frame_on_wire[] = { SOF_BYTE, H2T_CHANNEL_VERIFY_REQUEST, 0x00, 0x01, 0xAB, checksum + 1, EOF_BYTE }; // Bad checksum
+    uint8_t checksum = H2T_CHANNEL_VERIFY_RESPONSE + 0x00 + 0x01 + 0xAB;
+    uint8_t frame_on_wire[] = { SOF_BYTE, H2T_CHANNEL_VERIFY_RESPONSE, 0x00, 0x01, 0xAB, checksum + 1, EOF_BYTE }; // Bad checksum
 
     // Act
     load_mock_buffer(frame_on_wire, sizeof(frame_on_wire));
-    while(get_mock_buffer_len() > 0) process_serial_data();
+    process_serial_data();
     
     // Assert
     TEST_ASSERT_FALSE(was_handler_called());
@@ -203,7 +202,7 @@ void test_reject_bad_length(void) {
 
     // Act
     load_mock_buffer(frame_on_wire, sizeof(frame_on_wire));
-    while(get_mock_buffer_len() > 0) process_serial_data();
+    process_serial_data();
     
     // Assert
     TEST_ASSERT_FALSE(was_handler_called());
@@ -216,7 +215,7 @@ void test_reject_invalid_escape_sequence(void) {
 
     // Act
     load_mock_buffer(frame_on_wire, sizeof(frame_on_wire));
-    while(get_mock_buffer_len() > 0) process_serial_data();
+    process_serial_data();
     
     // Assert
     TEST_ASSERT_FALSE(was_handler_called());
@@ -236,7 +235,7 @@ void test_recover_after_corrupted_frame(void) {
 
     // Act
     load_mock_buffer(stream, sizeof(stream));
-    while(get_mock_buffer_len() > 0) process_serial_data();
+    process_serial_data();
     get_last_payload(received_payload);
     
     // Assert

@@ -2,9 +2,11 @@
 #include "constants.h"
 #include "protocol.h"
 #include "serial.h"
+#include "crypt.h"
 #include "unity.h"
 #include <stdbool.h>
 #include <string.h>
+#include <stdarg.h>
 
 // --- Mock Serial Wire ---
 static uint8_t mock_serial_buffer[1024];
@@ -37,9 +39,8 @@ void reset_mocks(void) {
 
 // Helper to preload the read buffer for receive tests
 void load_mock_buffer(const uint8_t* data, uint16_t len) {
-    memcpy(mock_serial_buffer, data, len);
-    write_idx = len;
-    read_idx = 0;
+    // Inject data directly into serial.c's rx_buffer
+    test_inject_rx_data(data, len);
 }
 
 // Helpers to get results from the write buffer
@@ -93,4 +94,37 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
         memcpy(last_payload, payload, len);
     }
     last_len = len;
+}
+
+// Mock crypto functions (for unit tests, encryption is passthrough)
+bool decrypt_frame_if_needed(
+    uint8_t* frame_buffer,
+    uint16_t frame_len,
+    uint8_t* decrypted_frame_out,
+    uint16_t* decrypted_len_out
+) {
+    // In unit tests, just copy the frame (no encryption)
+    memcpy(decrypted_frame_out, frame_buffer, frame_len);
+    *decrypted_len_out = frame_len;
+    return true;
+}
+
+bool encrypt_frame_if_needed(
+    uint8_t msg_type,
+    const uint8_t* frame,
+    uint16_t frame_len,
+    uint8_t* encrypted_frame_out,
+    uint16_t* encrypted_len_out
+) {
+    (void)msg_type;
+    // In unit tests, just copy the frame (no encryption)
+    memcpy(encrypted_frame_out, frame, frame_len);
+    *encrypted_len_out = frame_len;
+    return true;
+}
+
+// Mock debug print function
+void print_dbg(const char *format, ...) {
+    // In unit tests, suppress debug output
+    (void)format;
 }
