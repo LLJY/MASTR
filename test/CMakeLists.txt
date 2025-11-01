@@ -18,16 +18,24 @@ enable_testing()
 # --- Define the Test Executable ---
 add_executable(run_tests
     test_runner.c
+    test_common.c
     test_serial.c
+    test_protocol.c
+    test_session.c
+    test_nonce.c
+    test_integrity.c
     mocks/mock_pico_sdk.c
-    ../src/serial.c # <-- Path back to the code under test
+    mocks/mock_crypto.c
+    mocks/mock_time.c
+    ../src/serial.c
+    ../src/protocol.c
 )
 
 # --- Configure Include Directories ---
 target_include_directories(run_tests PRIVATE
     ${unity_SOURCE_DIR}/src
-    ../include # <-- Path back to the main include dir
-    ./mocks        # <-- Path to the local mocks dir
+    ../include
+    ./mocks
 )
 
 # --- Link Unity ---
