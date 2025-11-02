@@ -9,7 +9,7 @@
 #include "serial.h"
 #include "constants.h"
 #include "protocol.h"
-#include "crypt.h"
+#include "crypto.h"
 
 // Add binary info
 bi_decl(bi_program_name("MASTR"));
@@ -44,7 +44,7 @@ void serial_task(void *params) {
     (void)params;  // Unused parameter
     
     while (true) {
-        process_serial_data();
+        serial_process_data();
         // process_serial_data now blocks on semaphore, no need for delay
     }
 }
@@ -98,7 +98,7 @@ int main() {
     }
     
     // Initialize cryptographic subsystem
-    if (!crypt_init()) {
+    if (!crypto_init()) {
         print_dbg("WARNING: Crypto subsystem init failed\n");
     }
         

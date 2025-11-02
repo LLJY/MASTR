@@ -29,7 +29,7 @@ void test_state_transition_0x20_to_0x21_on_ecdh_share(void) {
     memset(payload + 64, 0xCC, 64);
     
     // Act: Process ECDH share message from host
-    handle_validated_message(H2T_ECDH_SHARE, payload, 128);
+    protocol_handle_validated_message(H2T_ECDH_SHARE, payload, 128);
     
     // Assert: Verify transition to state 0x21 and encryption enabled
     TEST_ASSERT_EQUAL_UINT8(0x21, protocol_state.current_state);
@@ -44,7 +44,7 @@ void test_state_transition_0x22_to_0x30_on_channel_verify(void) {
     uint8_t payload[4] = {'p', 'o', 'n', 'g'};
     
     // Act: Process correct channel verify response
-    handle_validated_message(H2T_CHANNEL_VERIFY_RESPONSE, payload, 4);
+    protocol_handle_validated_message(H2T_CHANNEL_VERIFY_RESPONSE, payload, 4);
     
     // Assert: Verify transition to integrity check state 0x30
     TEST_ASSERT_EQUAL_UINT8(0x30, protocol_state.current_state);
@@ -65,7 +65,7 @@ void test_state_transition_0x30_to_0x32_on_valid_integrity(void) {
     memset(payload + 32, 0xEE, 64);
     
     // Act: Process valid integrity response
-    handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
+    protocol_handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
     
     // Assert: Verify transition to boot OK state 0x32
     TEST_ASSERT_EQUAL_UINT8(0x32, protocol_state.current_state);
@@ -78,7 +78,7 @@ void test_state_transition_0x32_to_0x40_on_boot_ack(void) {
     mock_time_set(start_time);
     
     // Act: Process boot OK acknowledgment
-    handle_validated_message(H2T_BOOT_OK_ACK, NULL, 0);
+    protocol_handle_validated_message(H2T_BOOT_OK_ACK, NULL, 0);
     
     // Assert: Verify transition to runtime state 0x40 with valid session
     TEST_ASSERT_EQUAL_UINT8(0x40, protocol_state.current_state);
@@ -94,7 +94,7 @@ void test_heartbeat_accepted_in_runtime_state(void) {
     mock_time_set(initial_time);
     
     // Act: Process heartbeat message
-    handle_validated_message(H2T_HEARTBEAT, NULL, 0);
+    protocol_handle_validated_message(H2T_HEARTBEAT, NULL, 0);
     
     // Assert: Verify heartbeat timestamp updated and missed count reset
     TEST_ASSERT_EQUAL_UINT8(0x40, protocol_state.current_state);
@@ -114,7 +114,7 @@ void test_reject_integrity_response_in_wrong_state(void) {
     memset(payload, 0xFF, 96);
     
     // Act: Attempt integrity response in wrong state
-    handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
+    protocol_handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
     
     // Assert: Verify shutdown triggered for protocol violation
     TEST_ASSERT_TRUE(was_shutdown_signal_called());
@@ -125,7 +125,7 @@ void test_reject_heartbeat_before_runtime(void) {
     protocol_state.current_state = 0x30;
     
     // Act: Attempt heartbeat in wrong state
-    handle_validated_message(H2T_HEARTBEAT, NULL, 0);
+    protocol_handle_validated_message(H2T_HEARTBEAT, NULL, 0);
     
     // Assert: Verify heartbeat rejected, state unchanged
     TEST_ASSERT_EQUAL_UINT8(0x30, protocol_state.current_state);
@@ -136,7 +136,7 @@ void test_reject_boot_ack_in_wrong_state(void) {
     protocol_state.current_state = 0x40;
     
     // Act: Attempt boot ack in wrong state
-    handle_validated_message(H2T_BOOT_OK_ACK, NULL, 0);
+    protocol_handle_validated_message(H2T_BOOT_OK_ACK, NULL, 0);
     
     // Assert: Verify shutdown triggered for protocol violation
     TEST_ASSERT_TRUE(was_shutdown_signal_called());
@@ -149,7 +149,7 @@ void test_reject_channel_verify_in_wrong_state(void) {
     uint8_t payload[4] = {'p', 'o', 'n', 'g'};
     
     // Act: Attempt channel verify in wrong state
-    handle_validated_message(H2T_CHANNEL_VERIFY_RESPONSE, payload, 4);
+    protocol_handle_validated_message(H2T_CHANNEL_VERIFY_RESPONSE, payload, 4);
     
     // Assert: Verify shutdown triggered for protocol violation
     TEST_ASSERT_TRUE(was_shutdown_signal_called());
@@ -167,7 +167,7 @@ void test_invalid_ecdh_share_length_triggers_shutdown(void) {
     memset(payload, 0xAA, 64);
     
     // Act: Process malformed ECDH share
-    handle_validated_message(H2T_ECDH_SHARE, payload, 64);
+    protocol_handle_validated_message(H2T_ECDH_SHARE, payload, 64);
     
     // Assert: Verify shutdown triggered for invalid length
     TEST_ASSERT_TRUE(was_shutdown_signal_called());
@@ -181,7 +181,7 @@ void test_invalid_integrity_length_sends_nack(void) {
     memset(payload, 0xBB, 50);
     
     // Act: Process malformed integrity response
-    handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 50);
+    protocol_handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 50);
     
     // Assert: Verify state unchanged, NACK sent
     TEST_ASSERT_EQUAL_UINT8(0x30, protocol_state.current_state);
@@ -194,7 +194,7 @@ void test_bad_channel_verify_response_triggers_shutdown(void) {
     uint8_t payload[4] = {'b', 'a', 'd', '!'};
     
     // Act: Process wrong channel verify response
-    handle_validated_message(H2T_CHANNEL_VERIFY_RESPONSE, payload, 4);
+    protocol_handle_validated_message(H2T_CHANNEL_VERIFY_RESPONSE, payload, 4);
     
     // Assert: Verify shutdown triggered for failed channel verification
     TEST_ASSERT_TRUE(was_shutdown_signal_called());
@@ -213,7 +213,7 @@ void test_failed_signature_verification_triggers_shutdown(void) {
     memset(payload, 0xBB, 128);
     
     // Act: Process ECDH share with invalid signature
-    handle_validated_message(H2T_ECDH_SHARE, payload, 128);
+    protocol_handle_validated_message(H2T_ECDH_SHARE, payload, 128);
     
     // Assert: Verify shutdown triggered for cryptographic failure
     TEST_ASSERT_TRUE(was_shutdown_signal_called());
@@ -256,7 +256,7 @@ void test_ecdh_at_state_0x21_uses_existing_key(void) {
     memset(payload, 0xBB, 128);
     
     // Act: Process host ECDH share when token already initiated
-    handle_validated_message(H2T_ECDH_SHARE, payload, 128);
+    protocol_handle_validated_message(H2T_ECDH_SHARE, payload, 128);
     
     // Assert: Verify existing ephemeral key preserved (not regenerated)
     TEST_ASSERT_EQUAL_UINT8_ARRAY(existing_ephemeral, protocol_state.et_pubkey, 64);

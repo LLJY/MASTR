@@ -21,7 +21,7 @@ void test_session_establishment(void) {
     mock_time_set(start_time);
     
     // Act: Process boot acknowledgment to establish session
-    handle_validated_message(H2T_BOOT_OK_ACK, NULL, 0);
+    protocol_handle_validated_message(H2T_BOOT_OK_ACK, NULL, 0);
     
     // Assert: Verify session established with valid timestamp and runtime state
     TEST_ASSERT_TRUE(protocol_state.session_valid);
@@ -66,7 +66,7 @@ void test_session_timestamp_tracking(void) {
     protocol_state.current_state = 0x32;
     
     // Act: Establish session and capture timestamp
-    handle_validated_message(H2T_BOOT_OK_ACK, NULL, 0);
+    protocol_handle_validated_message(H2T_BOOT_OK_ACK, NULL, 0);
     
     // Assert: Verify session timestamp matches establishment time
     TEST_ASSERT_EQUAL_UINT64(expected_time, protocol_state.session_start_timestamp);
@@ -208,7 +208,7 @@ void test_heartbeat_resets_missed_count(void) {
     mock_time_set(5000000);
     
     // Act: Process heartbeat message
-    handle_validated_message(H2T_HEARTBEAT, NULL, 0);
+    protocol_handle_validated_message(H2T_HEARTBEAT, NULL, 0);
     
     // Assert: Verify missed count reset and timestamp updated
     TEST_ASSERT_EQUAL_UINT8(0, protocol_state.missed_hb_count);

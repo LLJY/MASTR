@@ -206,11 +206,11 @@ typedef struct{
 extern protocol_state_t protocol_state;
 
 // forward declarations
-void provision_protocol();
-void unprovision_protocol();
+void protocol_provision();
+void protocol_unprovision();
 bool protocol_check_provisioned();
-void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_t len);
-void send_channel_verification_challenge();
+void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_t len);
+void protocol_send_channel_verification_challenge();
 
 // Session management functions
 void protocol_invalidate_session(void);

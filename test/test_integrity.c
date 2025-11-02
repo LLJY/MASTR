@@ -31,7 +31,7 @@ void test_integrity_hash_comparison_exact_match(void) {
     memcpy(payload, computed_hash, 32);
     memset(payload + 32, 0xDD, 64);
     
-    handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
+    protocol_handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
     
     // Assert: Verify integrity passed and state advanced
     TEST_ASSERT_EQUAL_UINT8(0x32, protocol_state.current_state);
@@ -55,7 +55,7 @@ void test_integrity_detects_single_bit_tampering(void) {
     memcpy(payload, tampered_hash, 32);
     memset(payload + 32, 0xDD, 64);
     
-    handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
+    protocol_handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
     
     // Assert: Verify system entered halt state due to tampering
     TEST_ASSERT_EQUAL_UINT8(0xFF, protocol_state.current_state);
@@ -78,7 +78,7 @@ void test_integrity_detects_complete_hash_mismatch(void) {
     memcpy(payload, tampered_hash, 32);
     memset(payload + 32, 0xDD, 64);
     
-    handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
+    protocol_handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
     
     // Assert: Verify system entered halt state due to tampering
     TEST_ASSERT_EQUAL_UINT8(0xFF, protocol_state.current_state);
@@ -102,7 +102,7 @@ void test_integrity_validates_with_different_nonce(void) {
     memcpy(payload, computed_hash, 32);
     memset(payload + 32, 0xEE, 64);
     
-    handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
+    protocol_handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
     
     // Assert: Verify integrity still passes (nonce doesn't affect hash comparison)
     TEST_ASSERT_EQUAL_UINT8(0x32, protocol_state.current_state);
@@ -125,7 +125,7 @@ void test_integrity_zero_hash_detection(void) {
     memcpy(payload, zero_hash, 32);
     memset(payload + 32, 0xFF, 64);
     
-    handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
+    protocol_handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
     
     // Assert: Verify system entered halt state (zero hash rejected)
     TEST_ASSERT_EQUAL_UINT8(0xFF, protocol_state.current_state);
@@ -148,7 +148,7 @@ void test_integrity_all_ones_hash_detection(void) {
     memcpy(payload, ones_hash, 32);
     memset(payload + 32, 0xAA, 64);
     
-    handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
+    protocol_handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
     
     // Assert: Verify system entered halt state (all-ones hash rejected)
     TEST_ASSERT_EQUAL_UINT8(0xFF, protocol_state.current_state);

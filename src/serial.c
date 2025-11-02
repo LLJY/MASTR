@@ -8,7 +8,7 @@
 #include "constants.h"
 #include "serial.h"
 #include "protocol.h"
-#include "crypt.h"
+#include "crypto.h"
 
 // pico library headers
 // DO NOT INCLUDE THESE DURING UNIT TESTING.
@@ -129,7 +129,7 @@ void test_inject_rx_data(const uint8_t* data, uint16_t len) {
 }
 #endif
 
-void process_serial_data()
+void serial_process_data()
 {
     #ifndef UNIT_TEST
     // Wait for notification from ISR (pure event-driven, no polling)
@@ -177,7 +177,7 @@ void process_serial_data()
                 // EOF reached, complete the processing.
                 if (in_frame) {
                     in_frame = false;
-                    process_complete_frame();
+                    serial_process_complete_frame();
                 }
                 break;
 
@@ -196,12 +196,12 @@ void process_serial_data()
     }
 }
 
-static void process_complete_frame() {
+static void serial_process_complete_frame() {
     // Decrypt frame if protocol state requires it
     uint8_t decrypted_frame[MAX_PAYLOAD_SIZE + 4];
     uint16_t decrypted_len = 0;
     
-    if (!decrypt_frame_if_needed(frame_buffer, frame_len, decrypted_frame, &decrypted_len)) {
+    if (!crypto_decrypt_frame_if_needed(frame_buffer, frame_len, decrypted_frame, &decrypted_len)) {
         print_dbg("CRYPTO ERROR: Failed to decrypt frame\n");
         send_shutdown_signal();
         return;
@@ -271,7 +271,7 @@ static void process_complete_frame() {
     uint8_t *payload = &decrypted_frame[3];
     
     // Pass the payload to the handler
-    handle_validated_message(received_msg_type, payload, payload_len);
+    protocol_handle_validated_message(received_msg_type, payload, payload_len);
 }
 
 static void send_stuffed_byte(uint8_t c) {
@@ -343,7 +343,7 @@ void send_message(uint8_t msg_type, uint8_t *payload, uint16_t len)
     uint8_t encrypted_frame[MAX_PAYLOAD_SIZE + 4 + ENCRYPTION_OVERHEAD];
     uint16_t encrypted_len = 0;
     
-    if (!encrypt_frame_if_needed(msg_type, frame_buffer, frame_len, encrypted_frame, &encrypted_len)) {
+    if (!crypto_encrypt_frame_if_needed(msg_type, frame_buffer, frame_len, encrypted_frame, &encrypted_len)) {
         print_dbg("CRYPTO ERROR: Failed to encrypt outgoing frame\n");
         return;
     }
