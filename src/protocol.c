@@ -1,6 +1,6 @@
 #include "protocol.h"
 #include "serial.h"
-#include "crypt.h"
+#include "crypto.h"
 #include <string.h>
 
 #ifndef UNIT_TEST
@@ -16,13 +16,13 @@
 protocol_state_t protocol_state = {0};
 
 // store golden hash and public key
-void provision_protocol(){
+void protocol_provision(){
     // do with placeholder data. generate this data using openssl, and sha256 and hardcode it in protocol.h for now...
     // future implementations will set this using the web server.
 }
 
 // delete golden hash and public key
-void unprovision_protocol(){
+void protocol_unprovision(){
     // clear slot 8 on the atecc
 }
 
@@ -39,7 +39,7 @@ bool protocol_check_provisioned(){
     // <H_Pubkey>|<golden_hash>
 
     // receive both, verify, then store into protocol_state_t
-    
+
     // TODO: Implement actual provisioning check
     return false; // Not provisioned yet
 }
@@ -56,14 +56,14 @@ bool protocol_check_provisioned(){
  */
 void protocol_invalidate_session(void) {
     protocol_state.session_valid = false;
-    
+
     // DO NOT clear session key yet - keep old key for encrypted communication
     // The key will be overwritten when new ECDH completes successfully
-    
+
     // Reset to initial ECDH state but keep encryption flag
     // This allows us to stay encrypted during re-attestation with old key
     protocol_state.current_state = 0x20;
-    
+
     print_dbg("Session invalidated - awaiting re-attestation (keeping old key)\n");
 }
 
@@ -74,50 +74,50 @@ void protocol_invalidate_session(void) {
  */
 void protocol_trigger_reattestation(void) {
     print_dbg("Triggering re-attestation cycle\n");
-    
+
     // First invalidate session (keeps old key for encrypted communication)
     protocol_invalidate_session();
-    
+
     // Generate new ephemeral keypair
-    if (!ecdh_generate_ephemeral_key(protocol_state.et_pubkey)) {
+    if (!crypto_ecdh_generate_ephemeral_key(protocol_state.et_pubkey)) {
         print_dbg("ERROR: Failed to generate ephemeral key for re-attestation\n");
         return;
     }
-    
+
     #ifndef UNIT_TEST
     // Sign new ephemeral pubkey
     uint8_t token_signature[64];
-    if (!ecdh_sign_with_permanent_key(protocol_state.et_pubkey, 64, token_signature)) {
+    if (!crypto_ecdh_sign_with_permanent_key(protocol_state.et_pubkey, 64, token_signature)) {
         print_dbg("ERROR: Failed to sign ephemeral pubkey for re-attestation\n");
         return;
     }
-    
+
     // Send T2H_ECDH_SHARE to signal re-attestation
     uint8_t response[128];
     memcpy(response, protocol_state.et_pubkey, 64);
     memcpy(response + 64, token_signature, 64);
     send_message(T2H_ECDH_SHARE, response, 128);
-    
+
     print_dbg("Sent T2H_ECDH_SHARE for re-attestation (new ephemeral key)\n");
     #endif
-    
+
     // Wait at state 0x21 for host's H2T_ECDH_SHARE
     protocol_state.current_state = 0x21;
 }
 
 /**
  * Check if current session is valid and not timed out.
- * 
+ *
  * @return true if session is valid and within timeout, false otherwise
  */
 bool protocol_is_session_valid(void) {
     if (!protocol_state.session_valid) {
         return false;
     }
-    
+
     uint64_t current_time = time_us_64();
     uint64_t elapsed_ms = (current_time - protocol_state.session_start_timestamp) / 1000;
-    
+
     return elapsed_ms < protocol_state.session_timeout_ms;
 }
 
@@ -128,10 +128,10 @@ bool protocol_is_session_valid(void) {
 void protocol_enter_halt_spam_state(void) {
     protocol_state.in_halt_state = true;
     protocol_state.current_state = 0xFF;  // Permanent halt state
-    
+
     print_dbg("=== ENTERING PERMANENT HALT STATE ===\n");
     print_dbg("INTEGRITY FAILURE DETECTED - NO RECOVERY\n");
-    
+
     #ifndef UNIT_TEST
     // Spam T2H_INTEGRITY_FAIL_HALT indefinitely
     while (true) {
@@ -161,17 +161,17 @@ extern void test_hook_handle_validated_message_called(message_type_t msg_type, u
  * @param payload Decrypted message payload
  * @param len Payload length in bytes
  */
-void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_t len)
+void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_t len)
 {
     #ifdef UNIT_TEST
     // Notify tests that handler was called
     test_hook_handle_validated_message_called(msg_type, payload, len);
     #endif
-    
+
     #ifdef DEBUG
     print_dbg("Received message type: 0x%02X, length: %d\n", msg_type, len);
     #endif
-    
+
     switch (msg_type)
     {
         case H2T_ECDH_SHARE:
@@ -187,30 +187,30 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                     send_shutdown_signal();
                     break;
                 }
-                
+
                 uint8_t* host_eph_pubkey = payload;
                 uint8_t* host_signature = payload + 64;
-                
-                if (!ecdh_read_host_pubkey(protocol_state.host_permanent_pubkey)) {
+
+                if (!crypto_ecdh_read_host_pubkey(protocol_state.host_permanent_pubkey)) {
                     print_dbg("ERROR: Failed to read host pubkey\n");
                     send_shutdown_signal();
                     break;
                 }
-                
-                if (!ecdh_verify_signature(host_eph_pubkey, 64, host_signature,
+
+                if (!crypto_ecdh_verify_signature(host_eph_pubkey, 64, host_signature,
                                           protocol_state.host_permanent_pubkey)) {
                     print_dbg("ERROR: Signature verification failed\n");
                     send_shutdown_signal();
                     break;
                 }
-                
+
                 memcpy(protocol_state.received_host_eph_pubkey, host_eph_pubkey, 64);
-                
+
                 #ifndef UNIT_TEST
                 // Only generate new ephemeral key if host-initiated (state 0x20)
                 // At state 0x21 (token-initiated), we already have our key
                 if (protocol_state.current_state == 0x20) {
-                    if (!ecdh_generate_ephemeral_key(protocol_state.et_pubkey)) {
+                    if (!crypto_ecdh_generate_ephemeral_key(protocol_state.et_pubkey)) {
                         print_dbg("ERROR: Failed to generate ephemeral key\n");
                         send_shutdown_signal();
                         break;
@@ -219,27 +219,27 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                 } else {
                     print_dbg("Using existing ephemeral key (token-initiated ECDH)\n");
                 }
-                
+
                 uint8_t token_signature[64];
-                if (!ecdh_sign_with_permanent_key(protocol_state.et_pubkey, 64, token_signature)) {
+                if (!crypto_ecdh_sign_with_permanent_key(protocol_state.et_pubkey, 64, token_signature)) {
                     print_dbg("ERROR: Failed to sign ephemeral pubkey\n");
                     send_shutdown_signal();
                     break;
                 }
-                
+
                 uint8_t shared_secret[32];
-                if (!ecdh_compute_shared_secret(host_eph_pubkey, shared_secret)) {
+                if (!crypto_ecdh_compute_shared_secret(host_eph_pubkey, shared_secret)) {
                     print_dbg("ERROR: Failed to compute shared secret\n");
                     send_shutdown_signal();
                     break;
                 }
-                
-                if (!derive_session_key(shared_secret, protocol_state.aes_session_key)) {
+
+                if (!crypto_derive_session_key(shared_secret, protocol_state.aes_session_key)) {
                     print_dbg("ERROR: Failed to derive session key\n");
                     send_shutdown_signal();
                     break;
                 }
-                
+
                 // Check if we're responding to host-initiated ECDH (state 0x20)
                 // or completing token-initiated ECDH (state 0x21)
                 if (protocol_state.current_state == 0x20) {
@@ -248,7 +248,7 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                     memcpy(response, protocol_state.et_pubkey, 64);
                     memcpy(response + 64, token_signature, 64);
                     send_message(T2H_ECDH_SHARE, response, 128);
-                    
+
                     print_dbg("Sent T2H_ECDH_SHARE (host-initiated ECDH)\n");
                 } else {
                     // Token-initiated (state 0x21): We already sent T2H_ECDH_SHARE
@@ -256,26 +256,26 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                     print_dbg("Derived new session key (token-initiated ECDH)\n");
                 }
                 #endif
-                
+
                 // State transition (moved outside UNIT_TEST guard)
                 if (protocol_state.current_state == 0x20) {
                     protocol_state.current_state = 0x21;
                 }
-                
+
                 #ifndef UNIT_TEST
-                
+
                 // Enable encryption flag once (stays true even during re-attestation)
                 protocol_state.is_encrypted = true;
-                
+
                 pico_delay_ms(1000);
-                send_channel_verification_challenge();
+                protocol_send_channel_verification_challenge();
                 #else
                 // UNIT_TEST path: Set encryption flag
                 protocol_state.is_encrypted = true;
                 #endif
             }
             break;
-        
+
         case H2T_CHANNEL_VERIFY_RESPONSE:
             if (protocol_state.current_state != 0x22) {
                 print_dbg("ERROR: Channel verify response rejected (wrong state: 0x%02X)\n", protocol_state.current_state);
@@ -292,10 +292,10 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                     send_shutdown_signal();
                     break;
                 }
-                
+
                 // Advance to phase 2 - integrity verification
                 protocol_state.current_state = 0x30;
-                
+
                 #ifndef UNIT_TEST
                 protocol_state.integrity_challenge_nonce = get_rand_32();
                 send_message(T2H_INTEGRITY_CHALLENGE, (uint8_t*)&protocol_state.integrity_challenge_nonce, 4);
@@ -305,7 +305,7 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                 #endif
             }
             break;
-        
+
         // ===== PHASE 2: INTEGRITY & BOOT =====
         case H2T_INTEGRITY_RESPONSE:
             if(protocol_state.current_state != 0x30){
@@ -322,7 +322,7 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
 
             print_dbg("Handler: H2T_INTEGRITY_RESPONSE started\n");
             // payload here contains hash + sig (hash_nonce)
-            
+
             // separate the payload into hash and sig
             uint8_t hash[32];
             memcpy(hash, payload, 32);
@@ -347,10 +347,10 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                 protocol_enter_halt_spam_state();
                 break; // should never reach
             }
-            
+
             uint8_t p_golden_hash[32];
             bool atecc_status = crypto_get_golden_hash(p_golden_hash);
-            
+
             if(!atecc_status){
                 send_message(T2H_ERROR, NULL, 0);
                 break;
@@ -368,32 +368,32 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
             // advance state and wait for ACK
             protocol_state.current_state = 0x32;
             break;
-        
+
         case H2T_BOOT_OK_ACK:
             if(protocol_state.current_state != 0x32){
                 print_dbg("ERROR: BOOT_OK_ACK rejected (wrong state: 0x%02X)\n", protocol_state.current_state);
                 send_shutdown_signal();
                 break;
             }
-            
+
             // Start new session with configured timeout
             protocol_state.session_valid = true;
             protocol_state.session_start_timestamp = time_us_64();
             protocol_state.session_timeout_ms = 30000;  // Default: 30 seconds
-            
+
             print_dbg("Session established - entering runtime (timeout: %dms)\n",
                       protocol_state.session_timeout_ms);
             protocol_state.current_state = 0x40;
             break;
-        
+
         case H2T_INTEGRITY_FAIL_HALT:
             print_dbg("Handler: H2T_INTEGRITY_FAIL_HALT (not implemented)\n");
             break;
-        
+
         case INTEGRITY_FAIL_ACK:
             print_dbg("Handler: INTEGRITY_FAIL_ACK (not implemented)\n");
             break;
-        
+
         // ===== RUNTIME: HEARTBEAT =====
         case H2T_HEARTBEAT:
             // Only accept heartbeats in runtime state (0x40)
@@ -401,16 +401,16 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                 print_dbg("ERROR: Heartbeat rejected (wrong state: 0x%02X)\n", protocol_state.current_state);
                 break;
             }
-            
+
             // Update last heartbeat timestamp
             protocol_state.last_hb_timstamp = time_us_64();
             protocol_state.missed_hb_count = 0;  // Reset missed count
-            
+
             // Send ACK
             send_message(T2H_HEARTBEAT_ACK, NULL, 0);
             print_dbg("Heartbeat received and ACK sent\n");
             break;
-        
+
         // ===== TESTING & DEBUG DO NOT INCLUDE IN PRODUCTION. =====
         #ifdef DEBUG
         case H2T_TEST_RANDOM_REQUEST:
@@ -419,7 +419,7 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                 // Generate random number using ATECC608
                 uint8_t random_data[32];
                 ATCA_STATUS status = atcab_random(random_data);
-                
+
                 if (status == ATCA_SUCCESS) {
                     print_dbg("Generated 32 bytes of random data from ATECC608\n");
                     send_message(T2H_TEST_RANDOM_RESPONSE, random_data, sizeof(random_data));
@@ -429,7 +429,7 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
             }
             #endif
             break;
-        
+
         case H2T_DEBUG_SET_HOST_PUBKEY:
             #ifndef UNIT_TEST
             {
@@ -437,7 +437,7 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                     print_dbg("ERROR: Invalid host pubkey length: %d (expected 64)\n", len);
                     break;
                 }
-                
+
                 // ATECC can only write 32 bytes at once, so write 64-byte pubkey in 2 blocks
                 for (int block = 0; block < 2; block++) {
                     ATCA_STATUS status = atcab_write_zone(
@@ -448,25 +448,25 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                         payload + (block * 32),  // 32 bytes per block
                         32                   // 32 bytes per block
                     );
-                    
+
                     if (status != ATCA_SUCCESS) {
                         print_dbg("ERROR: Failed to write host pubkey block %d, status: 0x%02X\n", block, status);
                         break;
                     }
                 }
-                
+
                 memcpy(protocol_state.host_permanent_pubkey, payload, 64);
             }
             #endif
             break;
-        
+
         case T2H_DEBUG_GET_TOKEN_PUBKEY:
             #ifndef UNIT_TEST
             {
                 // Read token's permanent public key from Slot 0
                 uint8_t token_pubkey[64];
                 ATCA_STATUS status = atcab_get_pubkey(SLOT_PERMANENT_PRIVKEY, token_pubkey);
-                
+
                 if (status == ATCA_SUCCESS) {
                     send_message(T2H_DEBUG_GET_TOKEN_PUBKEY, token_pubkey, 64);
                 } else {
@@ -482,30 +482,30 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
                     send_message(T2H_ERROR, NULL, 0);
                     break;
                 }
-                
+
                 bool atecc_status = crypto_set_golden_hash(payload);
 
                 if(!atecc_status){
                     send_message(T2H_ERROR, NULL, 0);
                     break;
                 }
-                
+
                 // Read back the golden hash to verify it was written correctly
                 uint8_t p_golden_hash_retval[32];
                 bool atecc_status1 = crypto_get_golden_hash(p_golden_hash_retval);
-                
+
                 if(!atecc_status1){
                     send_message(T2H_ERROR, NULL, 0);
                     break;
                 }
-                
+
                 // Send back the read hash as acknowledgment
                 send_message(H2T_DEBUG_SET_GOLDEN_HASH, p_golden_hash_retval, 32);
             }
             #endif
             break;
         #endif  // DEBUG
-        
+
         // ===== INVALID MESSAGE TYPES =====
         // All other message types are T2H (Token to Host), so they should
         // not be received by the Token. This is an error condition.
@@ -523,10 +523,10 @@ void handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_
  * Initiates channel verification by sending encrypted ping challenge.
  * Transitions state to 0x22 (channel verification), enabling encryption for all subsequent messages.
  */
-void send_channel_verification_challenge() {
+void protocol_send_channel_verification_challenge() {
     #ifndef UNIT_TEST
     const uint8_t ping_message[] = {'p', 'i', 'n', 'g'};
-    
+
     protocol_state.current_state = 0x22;
     send_message(T2H_CHANNEL_VERIFY_REQUEST, (uint8_t*)ping_message, sizeof(ping_message));
     #endif

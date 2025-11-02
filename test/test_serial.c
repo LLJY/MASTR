@@ -91,7 +91,7 @@ void test_send_zero_length_payload(void) {
 
 
 // ========================================================================
-// ## Test Suite 2: process_serial_data() (Unstuffing and Validation)
+// ## Test Suite 2: serial_process_data() (Unstuffing and Validation)
 // ========================================================================
 
 void test_receive_simple_packet(void) {
@@ -103,7 +103,7 @@ void test_receive_simple_packet(void) {
 
     // Act: Process received serial data
     load_mock_buffer(frame_on_wire, sizeof(frame_on_wire));
-    process_serial_data();
+    serial_process_data();
     get_last_payload(received_payload);
 
     // Assert: Verify handler called with correct message type and payload
@@ -132,7 +132,7 @@ void test_receive_stuffed_packet(void) {
     
     // Act: Process stuffed frame
     load_mock_buffer(frame_on_wire, sizeof(frame_on_wire));
-    process_serial_data();
+    serial_process_data();
     get_last_payload(received_payload);
 
     // Assert: Verify unstuffing restored original payload
@@ -148,7 +148,7 @@ void test_receive_zero_length_packet(void) {
 
     // Act: Process empty payload message
     load_mock_buffer(frame_on_wire, sizeof(frame_on_wire));
-    process_serial_data();
+    serial_process_data();
 
     // Assert: Verify handler called with zero length
     TEST_ASSERT_TRUE(was_handler_called());
@@ -165,7 +165,7 @@ void test_ignore_bytes_before_SOF(void) {
 
     // Act: Process stream with leading garbage
     load_mock_buffer(frame_on_wire, sizeof(frame_on_wire));
-    process_serial_data();
+    serial_process_data();
     get_last_payload(received_payload);
     
     // Assert: Verify parser skipped garbage and found valid frame
@@ -184,7 +184,7 @@ void test_reject_bad_checksum(void) {
 
     // Act: Process frame with bad checksum
     load_mock_buffer(frame_on_wire, sizeof(frame_on_wire));
-    process_serial_data();
+    serial_process_data();
     
     // Assert: Verify handler not called and shutdown triggered
     TEST_ASSERT_FALSE(was_handler_called());
@@ -198,7 +198,7 @@ void test_reject_bad_length(void) {
 
     // Act: Process frame with length mismatch
     load_mock_buffer(frame_on_wire, sizeof(frame_on_wire));
-    process_serial_data();
+    serial_process_data();
     
     // Assert: Verify frame rejected and shutdown signaled
     TEST_ASSERT_FALSE(was_handler_called());
@@ -211,7 +211,7 @@ void test_reject_invalid_escape_sequence(void) {
 
     // Act: Process frame with illegal escape sequence
     load_mock_buffer(frame_on_wire, sizeof(frame_on_wire));
-    process_serial_data();
+    serial_process_data();
     
     // Assert: Verify invalid escape rejected
     TEST_ASSERT_FALSE(was_handler_called());
@@ -229,7 +229,7 @@ void test_recover_after_corrupted_frame(void) {
 
     // Act: Process stream with recovery scenario
     load_mock_buffer(stream, sizeof(stream));
-    process_serial_data();
+    serial_process_data();
     get_last_payload(received_payload);
     
     // Assert: Verify parser recovered and processed second frame

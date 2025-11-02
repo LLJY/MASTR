@@ -28,7 +28,7 @@
  * 
  * @return true if initialization successful, false otherwise
  */
-bool crypt_init(void);
+bool crypto_init(void);
 
 /**
  * @brief Encrypt a frame payload using AES-128-GCM
@@ -43,7 +43,7 @@ bool crypt_init(void);
  * @param ciphertext_len_out Actual length of encrypted output
  * @return true if encryption successful, false otherwise
  */
-bool aes_gcm_encrypt(
+bool crypto_aes_gcm_encrypt(
     const uint8_t* plaintext,
     uint16_t plaintext_len,
     const uint8_t* key,
@@ -64,7 +64,7 @@ bool aes_gcm_encrypt(
  * @param plaintext_len_out Actual length of decrypted output
  * @return true if decryption and authentication successful, false otherwise
  */
-bool aes_gcm_decrypt(
+bool crypto_aes_gcm_decrypt(
     const uint8_t* ciphertext,
     uint16_t ciphertext_len,
     const uint8_t* key,
@@ -84,7 +84,7 @@ bool aes_gcm_decrypt(
  * @param decrypted_len_out Length of decrypted frame
  * @return true if processing successful (decrypted or passthrough), false on error
  */
-bool decrypt_frame_if_needed(
+bool crypto_decrypt_frame_if_needed(
     uint8_t* frame_buffer,
     uint16_t frame_len,
     uint8_t* decrypted_frame_out,
@@ -104,7 +104,7 @@ bool decrypt_frame_if_needed(
  * @param encrypted_len_out Length of encrypted output
  * @return true if processing successful (encrypted or passthrough), false on error
  */
-bool encrypt_frame_if_needed(
+bool crypto_encrypt_frame_if_needed(
     uint8_t msg_type,
     const uint8_t* frame,
     uint16_t frame_len,
@@ -119,7 +119,7 @@ bool encrypt_frame_if_needed(
  * @param session_key_out 16-byte AES-128 session key output
  * @return true if derivation successful, false otherwise
  */
-bool derive_session_key(const uint8_t* shared_secret, uint8_t* session_key_out);
+bool crypto_derive_session_key(const uint8_t* shared_secret, uint8_t* session_key_out);
 
 // ============================================================================
 // ECDH Key Exchange Functions (using ATECC608A)
@@ -143,7 +143,7 @@ bool derive_session_key(const uint8_t* shared_secret, uint8_t* session_key_out);
  * @param ephemeral_pubkey_out Buffer to receive 64-byte public key
  * @return true on success, false on failure
  */
-bool ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out);
+bool crypto_ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out);
 
 /**
  * @brief Sign a message using permanent private key in Slot 0
@@ -153,7 +153,7 @@ bool ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out);
  * @param signature_out Buffer to receive 64-byte signature
  * @return true on success, false on failure
  */
-bool ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_len, 
+bool crypto_ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_len, 
                                    uint8_t* signature_out);
 
 /**
@@ -162,7 +162,7 @@ bool ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_len,
  * @param host_pubkey_out Buffer to receive 64-byte public key
  * @return true on success, false on failure
  */
-bool ecdh_read_host_pubkey(uint8_t* host_pubkey_out);
+bool crypto_ecdh_read_host_pubkey(uint8_t* host_pubkey_out);
 
 /**
  * @brief Verify signature using host's permanent public key
@@ -173,7 +173,7 @@ bool ecdh_read_host_pubkey(uint8_t* host_pubkey_out);
  * @param host_pubkey Host's public key (64 bytes)
  * @return true if signature is valid, false otherwise
  */
-bool ecdh_verify_signature(const uint8_t* message, size_t message_len,
+bool crypto_ecdh_verify_signature(const uint8_t* message, size_t message_len,
                            const uint8_t* signature, const uint8_t* host_pubkey);
 
 /**
@@ -186,7 +186,7 @@ bool ecdh_verify_signature(const uint8_t* message, size_t message_len,
  * @param shared_secret_out Buffer to receive 32-byte shared secret
  * @return true on success, false on failure
  */
-bool ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
+bool crypto_ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
                                 uint8_t* shared_secret_out);
 
 /**
@@ -198,7 +198,7 @@ bool ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
  * @param token_pubkey_out Buffer to receive 64-byte public key
  * @return true on success, false on failure
  */
-bool ecdh_read_token_pubkey(uint8_t* token_pubkey_out);
+bool crypto_ecdh_read_token_pubkey(uint8_t* token_pubkey_out);
 
 /**
  * @brief Verify integrity challenge response from host
@@ -228,7 +228,7 @@ bool crypto_verify_integrity_challenge(const uint8_t* hash, uint32_t nonce,
  * 
  * @return Pointer to 16-byte hardcoded key
  */
-const uint8_t* get_poc_aes_key(void);
+const uint8_t* crypto_get_poc_aes_key(void);
 
 /**
  * @brief Enable/disable forced encryption for testing
@@ -237,7 +237,7 @@ const uint8_t* get_poc_aes_key(void);
  * 
  * @param enable true to force encryption, false to use state-based logic
  */
-void set_force_encryption(bool enable);
+void crypto_set_force_encryption(bool enable);
 
 /**
  * This function gets the golden hash from the ATECC and returns it.

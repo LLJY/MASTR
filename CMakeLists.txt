@@ -152,7 +152,7 @@ add_executable(pico_project_template
     src/main.c
     src/serial.c
     src/protocol.c
-    src/crypt.c
+    src/crypto.c
     src/hal/hal_pico_i2c.c
 )
 
