@@ -154,6 +154,11 @@ add_executable(pico_project_template
     src/protocol.c
     src/crypt.c
     src/hal/hal_pico_i2c.c
+    src/net/wifi_ap.c
+    src/net/ap/ap_manager.c
+    src/net/http/http_server.c
+    src/net/api/api.c
+    src/net/dhcp/dhcpserver.c
 )
 
 # Link to pico_stdlib
@@ -163,7 +168,11 @@ target_link_libraries(pico_project_template
     cryptoauth
     pico_mbedtls
     FreeRTOS-Kernel-Heap4
-    freertos_config)
+    freertos_config
+    pico_cyw43_arch_lwip_threadsafe_background
+    pico_lwip_http
+    hardware_adc
+)
 
 # Enable usb output, disable uart output
 pico_enable_stdio_usb(pico_project_template 1)
@@ -176,9 +185,13 @@ pico_add_extra_outputs(pico_project_template)
 target_include_directories(pico_project_template 
     PUBLIC 
     ${CMAKE_CURRENT_LIST_DIR}/include
+    ${CMAKE_CURRENT_LIST_DIR}/src
+    ${CMAKE_CURRENT_LIST_DIR}/src/net
     ${cryptoauthlib_SOURCE_DIR}/lib
     ${cryptoauthlib_SOURCE_DIR}/lib/hal
     ${cryptoauthlib_SOURCE_DIR}/lib/calib
+    ${PICO_SDK_PATH}/lib/lwip/src/include
+    ${PICO_SDK_PATH}/lib/lwip/contrib/ports/freertos/include
 )
 
 if(BUILD_TESTS)
