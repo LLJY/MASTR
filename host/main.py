@@ -6,7 +6,7 @@ protocol state machine with pluggable cryptographic backends.
 
 CRYPTO BACKENDS:
   - NaiveCrypto: File-based key storage (development/testing)
-  - TPM2Crypto: TPM2-based secure storage (production) [TODO]
+  - TPM2Crypto: TPM2-based secure storage (production) ✓ IMPLEMENTED
 
 PROTOCOL PHASES:
   Phase 0: Key Provisioning
@@ -60,6 +60,7 @@ from .serial_handler import SerialHandler
 from .protocol import Frame, MessageType, get_message_name
 from .parser import FrameParserError, ChecksumError, ProtocolError
 from .crypto import NaiveCrypto
+from .tpm2_crypto import TPM2Crypto
 from .crypto_interface import CryptoInterface
 from .logger import Logger, Colors
 from .hybrid_key_storage import HybridKeyStorage
@@ -979,7 +980,7 @@ def main():
     #
     # Available backends:
     #   - NaiveCrypto: File-based key storage (development/testing)
-    #   - TPM2Crypto: TPM2-based secure storage (production) [not yet implemented]
+    #   - TPM2Crypto: TPM2-based secure storage (production) ✓ IMPLEMENTED
     #
     # To add a new backend:
     #   1. Create a new class implementing CryptoInterface
@@ -990,10 +991,11 @@ def main():
     if args.crypto == 'naive':
         crypto = NaiveCrypto()
     elif args.crypto == 'tpm2':
-        # TODO: Implement TPM2Crypto backend
-        Logger.error("TPM2 crypto not yet implemented")
-        print("Use --crypto=naive for now")
-        return 1
+        try:
+            crypto = TPM2Crypto()
+        except Exception as e:
+            Logger.error(f"Failed to initialize TPM2 crypto: {e}")
+            return 1
     else:
         Logger.error(f"Unknown crypto implementation: {args.crypto}")
         return 1
