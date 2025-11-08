@@ -557,3 +557,10 @@ bool crypto_set_golden_hash(uint8_t* p_hash){
     }
     return true;
 }
+
+/**
+ * Checks if the token is provisioned.
+ * Provisioned means the host's public key exists in the ATECC608A (Slot 8).
+ * 
+ * @return true if host public key is stored and valid, false otherwise.
+ */

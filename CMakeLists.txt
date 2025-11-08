@@ -153,6 +153,7 @@ add_executable(pico_project_template
     src/serial.c
     src/protocol.c
     src/crypt.c
+    src/cpu_monitor.c
     src/hal/hal_pico_i2c.c
     src/net/wifi_ap.c
     src/net/ap/ap_manager.c

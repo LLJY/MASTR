@@ -70,3 +70,10 @@ void stop_access_point(void) {
     cyw43_arch_deinit();
     print_dbg("WiFi AP stopped\n");
 }
+
+/**
+ * Get DHCP server instance for querying connected clients
+ */
+const dhcp_server_t* get_dhcp_server(void) {
+    return &g_dhcp;
+}

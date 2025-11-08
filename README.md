@@ -1,4 +1,4 @@
-# 🤖 MASTR Token - WiFi AP Integration
+# 🤖 MASTR Token - WiFi AP Integration ANNAQIS BRANCH WELCOME TO MY BRANCH
 
 **M**utual **A**ttested **S**ecure **T**oken for **R**obotics - now with WiFi (bruh).
 
@@ -139,10 +139,16 @@ open http://192.168.4.1
 
 2. **Test full flow:** Provision → then WiFi polling starts → both work together
 
-3. **Maybe fix `/api/info`** → Temperature reading without crashing
+3. **fix `/api/info`** → Temperature reading without crashing
 
-4. **macOS USB drama** → Not much we can do, macOS issue
+4. **CPU Utilization Enhancements**  
+   - Consider fractional percentages (tenths) for very light load visibility.  
+   - Replace Idle task name heuristic with handle-based identification when linker symbol becomes available.  
+   - See `docs/cpu_monitor.md` for current design and extension points.
+
+
 
 ---
 
-Made on a Pico 2 W. Works most of the time. That's a win in my book. ✌️ 
+### 📊 CPU Utilization
+The `/api/cpu` endpoint reports current CPU busy percent using runtime stats with a smoothing window. See `docs/cpu_monitor.md` for full design details.
