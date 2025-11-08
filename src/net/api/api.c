@@ -162,6 +162,61 @@ static void ram_handler(struct tcp_pcb *pcb, const char *request) {
 }
 
 /**
+ * Temperature handler - returns internal MCU temperature (°C)
+ * 
+ * Safe, low-overhead read using Pico SDK ADC driver. We enable the
+ * internal sensor, discard the first sample, average a few readings,
+ * then convert to degrees Celsius using the standard formula.
+ */
+static float read_internal_temperature_c(void) {
+    // One-time ADC init (idempotent)
+    static bool adc_ready = false;
+    if (!adc_ready) {
+        adc_init();
+        adc_set_temp_sensor_enabled(true);
+        adc_ready = true;
+    }
+
+    // Select internal temperature sensor channel (ADC input 4)
+    adc_select_input(4);
+
+    // Throw away the first reading after switching channels/sensor enable
+    (void)adc_read();
+
+    // Average several samples for stability
+    const int SAMPLES = 8;
+    uint32_t acc = 0;
+    for (int i = 0; i < SAMPLES; i++) {
+        acc += adc_read();
+    }
+    float raw = acc / (float)SAMPLES;
+
+    // Convert raw 12-bit ADC reading to voltage (assumes 3.3V reference)
+    const float VREF = 3.3f;
+    float v = raw * VREF / 4095.0f;
+
+    // Pico formula: 27°C at 0.706V, slope 1.721 mV/°C
+    float temp_c = 27.0f - (v - 0.706f) / 0.001721f;
+    return temp_c;
+}
+
+static void temperature_handler(struct tcp_pcb *pcb, const char *request) {
+    (void)request;
+    print_dbg("[API] temperature_handler called\n");
+
+    float t = read_internal_temperature_c();
+    // Clamp to a sane range in case of transient anomalies
+    if (t < -40.0f) t = -40.0f;
+    if (t > 125.0f) t = 125.0f;
+
+    char body[128];
+    int n = snprintf(body, sizeof(body), "{\"temp_c\":%.1f}", (double)t);
+    (void)n;
+    print_dbg("[API] temperature: %.1f C\n", (double)t);
+    http_send_json(pcb, 200, body);
+}
+
+/**
  * CPU utilization handler - returns CPU usage percentage
  * 
  * Requirements:
@@ -241,6 +296,7 @@ void api_register_routes(void) {
     http_register("/api/status", status_handler);
     http_register("/api/network", network_handler);
     http_register("/api/ram", ram_handler);
+    http_register("/api/temp", temperature_handler);
     http_register("/api/cpu", cpu_handler);
     print_dbg("API routes registered\n");
 }
