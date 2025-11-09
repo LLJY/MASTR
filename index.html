@@ -192,6 +192,20 @@
                 <span id="statusText">Loading...</span>
             </div>
         </div>
+
+        <div class="status-card">
+            <div class="status-label">Wi‑Fi Setup</div>
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:8px;">
+                <div>
+                    <div><strong>Configured:</strong> <span id="wifiConfigured">--</span></div>
+                </div>
+                <button id="configureBtn" class="button button-primary" style="max-width: 220px; margin:0;" onclick="configureWifi()">Configure Wi‑Fi</button>
+            </div>
+            <div id="claimResult" style="margin-top:12px; display:none;">
+                <div><strong>New Password:</strong> <span id="newPassword" style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">--</span></div>
+                <div id="reconnectHint" style="font-size:12px; color:#666; margin-top:6px;">AP will restart soon. Reconnect to the SSID shown above using this password.</div>
+            </div>
+        </div>
         
         <div class="status-card">
             <div class="status-label">Network Info</div>
@@ -254,7 +268,7 @@
             </div>
         </div>
         
-        <button class="button button-primary" onclick="refreshStatus()">Refresh Status</button>
+    <button class="button button-primary" onclick="refreshStatus()">Refresh Status</button>
         <button class="button button-secondary" onclick="testPing()">Test Ping</button>
         
         <div class="message" id="message"></div>
@@ -285,6 +299,23 @@
                         statusIcon.className = 'status-icon not-provisioned';
                         statusText.textContent = 'Not Provisioned';
                     }
+
+                    // Fill additional status fields
+                    document.getElementById('uptime').textContent = (data.uptime_s ?? '--') + 's';
+                    document.getElementById('state').textContent = data.state ?? '--';
+
+                    // Wi‑Fi configured from g_claimed
+                    const configured = !!data.wifi_configured;
+                    document.getElementById('wifiConfigured').textContent = configured ? 'Yes' : 'No';
+                    const btn = document.getElementById('configureBtn');
+                    if (configured) {
+                        btn.disabled = true;
+                        btn.textContent = 'Wi‑Fi Configured';
+                    } else {
+                        btn.disabled = false;
+                        btn.textContent = 'Configure Wi‑Fi';
+                        document.getElementById('claimResult').style.display = 'none';
+                    }
                     
                     showMessage('Status updated', 'success');
                 })
@@ -300,6 +331,7 @@
                     document.getElementById('networkSSID').textContent = data.ssid;
                     document.getElementById('networkSecurity').textContent = data.security;
                     document.getElementById('networkIP').textContent = data.ap_ip;
+                    document.getElementById('ipAddress').textContent = data.ap_ip;
                     
                     // Display connected clients
                     const clientsList = document.getElementById('clientsList');
@@ -318,7 +350,7 @@
                 });
             
             // Fetch RAM info
-            fetch('/api/ram')
+            fetch('http://192.168.4.1/api/ram')
                 .then(response => response.json())
                 .then(data => {
                     document.getElementById('ramTotal').textContent = data.ram_total_kb;
@@ -343,7 +375,7 @@
                 });
             
             // Fetch CPU info
-            fetch('/api/cpu')
+            fetch('http://192.168.4.1/api/cpu')
                 .then(response => response.json())
                 .then(data => {
                     document.getElementById('cpuPercent').textContent = data.cpu_percent + '%';
@@ -364,6 +396,51 @@
                 .catch(error => {
                     console.error('Error fetching CPU info:', error);
                 });
+
+            // Fetch Temperature
+            fetch('http://192.168.4.1/api/temp')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('temperature').textContent = (data.temp_c ?? '--') + ' °C';
+                })
+                .catch(error => {
+                    console.error('Error fetching temperature:', error);
+                });
+        }
+
+        function configureWifi() {
+            const btn = document.getElementById('configureBtn');
+            btn.disabled = true;
+            btn.textContent = 'Configuring...';
+            fetch('http://192.168.4.1/api/claim')
+                .then(resp => resp.json())
+                .then(data => {
+                    if (data && data.status === 'ok') {
+                        // Show new password and hint
+                        document.getElementById('newPassword').textContent = data.new_password || '';
+                        document.getElementById('claimResult').style.display = 'block';
+                        showMessage('Wi‑Fi configured. Password generated.', 'success');
+
+                        // Optionally start countdown
+                        const ms = data.reconnect_in_ms || 0;
+                        if (ms > 0) {
+                            const hint = document.getElementById('reconnectHint');
+                            hint.textContent = `AP will restart in ~${ms} ms. Reconnect using the password above.`;
+                        }
+                    } else {
+                        throw new Error('Claim failed');
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    showMessage('Wi‑Fi configuration failed', 'error');
+                    btn.disabled = false;
+                    btn.textContent = 'Configure Wi‑Fi';
+                })
+                .finally(() => {
+                    // Refresh status shortly after to reflect g_claimed
+                    setTimeout(refreshStatus, 1000);
+                });
         }
 
         function testPing() {
@@ -380,7 +457,7 @@
 
         // Refresh every 5 seconds (R-4.6.4)
         window.addEventListener('load', refreshStatus);
-        setInterval(refreshStatus, 5000);
+        setInterval(refreshStatus, 2000);
     </script>
 </body>
 </html>

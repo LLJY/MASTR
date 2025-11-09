@@ -62,6 +62,13 @@ void wifi_ap_stop(void);
 wifi_ap_config_t* wifi_ap_get_config(void);
 
 /**
+ * Rotate AP password and restart AP with WPA2-PSK security.
+ * If new_pass length < 8, AP will fall back to OPEN.
+ * Returns true on success (AP running with requested password), false if restart failed.
+ */
+bool wifi_ap_rotate_password(const char *new_pass);
+
+/**
  * WiFi background task (FreeRTOS task function)
  * 
  * CRITICAL: This task must run regularly (every 50-100ms) for:
