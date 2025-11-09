@@ -161,19 +161,16 @@ int main() {
     if (!wifi_ap_init()) {
         print_dbg("WARNING: WiFi subsystem preparation failed\n");
     } else {
-        // NOTE: WiFi background task DISABLED - it interferes with serial
-        // The HTTP server will still work, but may not handle incoming packets
-        // as quickly without the background polling task
-        /*
+        // Enable WiFi background task (required for stable lwIP & driver event processing)
+        // If serial interference is observed, consider lowering priority or increasing delay inside task.
         xTaskCreate(
             wifi_background_task,
             "WiFi-BG",
             DEFAULT_STACK_SIZE,
             NULL,
-            configMAX_PRIORITIES - 7,  // Priority 25
+            configMAX_PRIORITIES - 7,  // Priority 25 (below serial/watchdog)
             NULL
         );
-        */
         
         // Create WiFi AP initialization task (priority 5: low priority)
         // Waits 60 seconds to let scheduler stabilize and provisioning complete
