@@ -71,6 +71,28 @@ void stop_access_point(void) {
     print_dbg("WiFi AP stopped\n");
 }
 
+int reconfigure_access_point(const char *ssid, const char *pass) {
+    // Determine auth mode and password
+    const char *ap_pass = pass;
+    int auth_mode = CYW43_AUTH_WPA2_AES_PSK;
+    if (pass == NULL || strlen(pass) < 8) {
+        auth_mode = CYW43_AUTH_OPEN;
+        ap_pass = "";
+        print_dbg("Reconfiguring AP to OPEN (password too short)\n");
+    } else {
+        print_dbg("Reconfiguring AP to WPA2-PSK\n");
+    }
+
+    // Disable AP mode then re-enable with new credentials (keep driver/lwIP alive)
+    cyw43_arch_disable_ap_mode();
+    cyw43_arch_enable_ap_mode(ssid, ap_pass, auth_mode);
+
+    // Keep existing DHCP server; IP/netmask are unchanged
+    print_dbg("AP reconfigured: SSID=%s, auth=%s\n", ssid,
+              (auth_mode == CYW43_AUTH_OPEN) ? "OPEN" : "WPA2-PSK");
+    return 0;
+}
+
 /**
  * Get DHCP server instance for querying connected clients
  */

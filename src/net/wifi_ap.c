@@ -9,9 +9,12 @@
 #include "task.h"
 #endif
 
+// Persistent password storage so runtime password rotations remain valid.
+// Start passwordless (empty string) so AP initially is OPEN for claim flow.
+static char wifi_pass_storage[65] = ""; // will be filled on claim
 static wifi_ap_config_t wifi_config = {
     .ssid = "MASTR-Token",
-    .password = "MastrToken123",
+    .password = wifi_pass_storage,        // pointer always kept to storage
     .ip_address = 0xC0A80401,  // 192.168.4.1
     .is_running = false
 };
@@ -34,8 +37,19 @@ bool wifi_ap_start(const wifi_ap_config_t *config) {
     if (config == NULL) {
         return false;
     }
-
-    memcpy(&wifi_config, config, sizeof(wifi_ap_config_t));
+    // Copy fundamental fields but deep-copy password text into persistent storage.
+    wifi_config.ssid = config->ssid; // assume lifetime static/const or managed by caller
+    if (config->password) {
+        size_t len = strlen(config->password);
+        if (len >= sizeof(wifi_pass_storage)) len = sizeof(wifi_pass_storage) - 1;
+        memcpy(wifi_pass_storage, config->password, len);
+        wifi_pass_storage[len] = '\0';
+    } else {
+        wifi_pass_storage[0] = '\0';
+    }
+    wifi_config.password = wifi_pass_storage;
+    wifi_config.ip_address = config->ip_address;
+    wifi_config.is_running = false;
 
     #ifndef UNIT_TEST
     if (start_access_point(wifi_config.ssid, wifi_config.password) != 0) {
@@ -66,6 +80,28 @@ void wifi_ap_stop(void) {
  */
 wifi_ap_config_t* wifi_ap_get_config(void) {
     return &wifi_config;
+}
+
+// Rotate password and restart AP (synchronous). Returns false on failure; AP left stopped if restart fails.
+bool wifi_ap_rotate_password(const char *new_pass) {
+    if (new_pass == NULL) return false;
+    // Update stored password text
+    size_t len = strlen(new_pass);
+    if (len >= sizeof(wifi_pass_storage)) len = sizeof(wifi_pass_storage) - 1;
+    memcpy(wifi_pass_storage, new_pass, len);
+    wifi_pass_storage[len] = '\0';
+    wifi_config.password = wifi_pass_storage;
+
+    // Reconfigure AP credentials without full deinit (smoother, safer)
+    if (reconfigure_access_point(wifi_config.ssid, wifi_config.password) != 0) {
+        print_dbg("ERROR: AP reconfiguration failed, attempting OPEN fallback\n");
+        wifi_pass_storage[0] = '\0';
+        wifi_config.password = wifi_pass_storage;
+        reconfigure_access_point(wifi_config.ssid, "");
+        return false;
+    }
+    wifi_config.is_running = true;
+    return true;
 }
 
 /**

@@ -1,5 +1,7 @@
-#include "http/http_server.h"
+// Rebuilt HTTP server file: cleaned duplicates, minimal single-connection server
+// with deferred close via tcp_sent to reduce intermittent curl failures.
 
+#include "http_server.h"
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
 #include <string.h>
@@ -7,13 +9,8 @@
 #include <stdbool.h>
 #include "serial.h"
 
-// Forward declaration of internal helper
-static void send_response(struct tcp_pcb *pcb, const char *status, const char *content_type, const char *body);
-
-// Simple route table for exact-match routes
 #define MAX_ROUTES 8
-typedef void (*http_handler_fn_t)(struct tcp_pcb *pcb, const char *request);
-struct route_entry { const char *path; http_handler_fn_t handler; };
+struct route_entry { const char *path; http_handler_fn handler; };
 static struct route_entry routes[MAX_ROUTES];
 
 int http_register(const char *path, http_handler_fn handler) {
@@ -27,27 +24,21 @@ int http_register(const char *path, http_handler_fn handler) {
     return -1;
 }
 
-void http_send_json(struct tcp_pcb *pcb, int status_code, const char *json_body) {
-    char status[32];
-    switch (status_code) {
-        case 200: strcpy(status, "200 OK"); break;
-        case 404: strcpy(status, "404 Not Found"); break;
-        case 500: strcpy(status, "500 Internal Server Error"); break;
-        default: snprintf(status, sizeof(status), "%d", status_code); break;
-    }
-    send_response(pcb, status, "application/json", json_body);
-}
-
-#define HTTP_PORT 80
-
 typedef struct {
     char request[1024];
     int request_len;
-    bool is_in_use; // Flag to track if we are busy
+    bool in_use;
+    bool close_when_sent;
 } http_state_t;
 
-// Single static instance for simplicity/stability
-static http_state_t connection_state;
+static http_state_t g_state;
+
+static void reset_state(void) {
+    g_state.request_len = 0;
+    g_state.request[0] = '\0';
+    g_state.in_use = false;
+    g_state.close_when_sent = false;
+}
 
 static void send_response(struct tcp_pcb *pcb, const char *status, const char *content_type, const char *body) {
     char header[256];
@@ -59,59 +50,66 @@ static void send_response(struct tcp_pcb *pcb, const char *status, const char *c
         "Content-Length: %d\r\n\r\n",
         status, content_type, (int)strlen(body));
 
-    tcp_write(pcb, header, header_len, TCP_WRITE_FLAG_COPY);
-    tcp_write(pcb, body, strlen(body), TCP_WRITE_FLAG_COPY);
+    if (tcp_write(pcb, header, header_len, TCP_WRITE_FLAG_COPY) != ERR_OK) {
+        tcp_abort(pcb); return; }
+    if (tcp_write(pcb, body, strlen(body), TCP_WRITE_FLAG_COPY) != ERR_OK) {
+        tcp_abort(pcb); return; }
     tcp_output(pcb);
+    g_state.close_when_sent = true;
+}
+
+void http_send_json(struct tcp_pcb *pcb, int status_code, const char *json_body) {
+    char status[32];
+    switch (status_code) {
+        case 200: strcpy(status, "200 OK"); break;
+        case 404: strcpy(status, "404 Not Found"); break;
+        case 500: strcpy(status, "500 Internal Server Error"); break;
+        default: snprintf(status, sizeof(status), "%d", status_code); break;
+    }
+    send_response(pcb, status, "application/json", json_body);
 }
 
 static void handle_request(struct tcp_pcb *pcb, char *request) {
     char method[8], path[64];
     sscanf(request, "%7s %63s", method, path);
-
-    // Check registered routes first
     for (int i = 0; i < MAX_ROUTES; ++i) {
-        if (routes[i].path != NULL && strcmp(path, routes[i].path) == 0) {
+        if (routes[i].path && strcmp(path, routes[i].path) == 0) {
             routes[i].handler(pcb, request);
             return;
         }
     }
-
-    // No built-in application routes here; transport returns 404 for unknown paths.
     send_response(pcb, "404 Not Found", "application/json", "{\"error\":\"not found\"}");
 }
 
 static err_t http_close(struct tcp_pcb *pcb) {
-    connection_state.is_in_use = false;
-    connection_state.request_len = 0;
-    tcp_close(pcb);
-    return ERR_OK;
+    reset_state();
+    return tcp_close(pcb);
 }
 
 static void http_err(void *arg, err_t err) {
-    (void)arg; (void)err;
-    connection_state.is_in_use = false;
-    connection_state.request_len = 0;
+    (void)arg; (void)err; reset_state(); }
+
+static err_t http_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
+    (void)arg; (void)len;
+    if (g_state.close_when_sent) return http_close(pcb);
+    return ERR_OK;
 }
 
 static err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) {
     (void)arg; (void)err;
-    if (!p) {
-        return http_close(pcb);
-    }
-
+    if (!p) return http_close(pcb);
     if (p->tot_len > 0) {
-        int copy_len = sizeof(connection_state.request) - connection_state.request_len - 1;
+        int copy_len = sizeof(g_state.request) - g_state.request_len - 1;
+        if (copy_len < 0) copy_len = 0;
         if (p->tot_len < copy_len) copy_len = p->tot_len;
-
-        pbuf_copy_partial(p, connection_state.request + connection_state.request_len, copy_len, 0);
-        connection_state.request_len += copy_len;
-        connection_state.request[connection_state.request_len] = '\0';
+        if (copy_len > 0) {
+            pbuf_copy_partial(p, g_state.request + g_state.request_len, copy_len, 0);
+            g_state.request_len += copy_len;
+            g_state.request[g_state.request_len] = '\0';
+        }
         tcp_recved(pcb, p->tot_len);
-
-        if (strstr(connection_state.request, "\r\n\r\n")) {
-            handle_request(pcb, connection_state.request);
-            pbuf_free(p);
-            return http_close(pcb);
+        if (strstr(g_state.request, "\r\n\r\n")) {
+            handle_request(pcb, g_state.request);
         }
     }
     pbuf_free(p);
@@ -120,21 +118,19 @@ static err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err
 
 static err_t http_accept(void *arg, struct tcp_pcb *client_pcb, err_t err) {
     (void)arg; (void)err;
-    if (connection_state.is_in_use) {
-        tcp_abort(client_pcb);
-        return ERR_ABRT;
-    }
-
-    connection_state.is_in_use = true;
-    tcp_arg(client_pcb, &connection_state);
+    if (g_state.in_use) { tcp_close(client_pcb); return ERR_OK; }
+    g_state.in_use = true; g_state.request_len = 0; g_state.close_when_sent = false; g_state.request[0] = '\0';
+    tcp_arg(client_pcb, &g_state);
     tcp_recv(client_pcb, http_recv);
     tcp_err(client_pcb, http_err);
+    tcp_sent(client_pcb, http_sent);
     return ERR_OK;
 }
 
 void http_server_init(void) {
     struct tcp_pcb *pcb = tcp_new_ip_type(IPADDR_TYPE_ANY);
-    tcp_bind(pcb, NULL, HTTP_PORT);
+    if (!pcb) { print_dbg("HTTP: tcp_new failed\n"); return; }
+    if (tcp_bind(pcb, NULL, 80) != ERR_OK) { print_dbg("HTTP: bind failed\n"); tcp_abort(pcb); return; }
     pcb = tcp_listen(pcb);
     tcp_accept(pcb, http_accept);
     print_dbg("HTTP server initialized on port 80\n");

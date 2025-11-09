@@ -16,20 +16,102 @@
 #include "net/wifi_ap.h"
 #include "cryptoauthlib.h"
 #include "cpu_monitor.h"
+#include "wifi_ap.h"
 
-// CPU utilization tracking - hybrid approach: runtime stats primary, tick fallback
-static uint32_t cpu_last_total_ticks = 0;
-static uint32_t cpu_last_idle_ticks = 0;
-static uint32_t cpu_accum_total = 0; // tick-based accumulation window (smoothing)
-static uint32_t cpu_accum_idle  = 0;
-static uint32_t cpu_last_report = 0; // last reported percent
+// Forward-declared timer for deferred AP password rotation after claim
+#include "FreeRTOS.h"
+#include "task.h"
+#include "timers.h"
 
-// External idle tick counter from cpu_monitor.c
-extern volatile uint32_t g_idleTicks;
+// Throttled API logging: set to 1 to enable verbose API logs to serial
+#ifndef API_DEBUG
+#define API_DEBUG 0
+#endif
+#if API_DEBUG
+#define API_DBG(...) print_dbg(__VA_ARGS__)
+#else
+#define API_DBG(...) do { } while (0)
+#endif
+
+// State: has the device been claimed already?
+static bool g_claimed = false;
+// Cache the last generated password so we can optionally re-display or debug
+static char g_last_psk[33] = ""; // 32 chars + NUL
+
+// One-shot timer callback to restart AP with new password
+// Worker task to perform AP restart in a normal task context (not timer task)
+static void ap_restart_task(void *arg) {
+    (void)arg;
+    // Small delay to ensure response left the device stack
+    vTaskDelay(pdMS_TO_TICKS(50));
+    if (g_last_psk[0] != '\0') {
+        wifi_ap_rotate_password(g_last_psk);
+    }
+    vTaskDelete(NULL);
+}
+
+static void ap_rotate_timer_cb(TimerHandle_t xTimer) {
+    (void)xTimer;
+    // Create detached worker to do the heavy lifting (deinit/init may block)
+    xTaskCreate(ap_restart_task, "ap_rst", 1024, NULL, tskIDLE_PRIORITY + 2, NULL);
+}
+
+// Generate a random WPA2 passphrase (length between 16 and 24) using get_rand_32()
+static void generate_random_psk(char *out, size_t out_len) {
+    static const char charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    size_t charset_len = sizeof(charset) - 1;
+    if (out_len == 0) return;
+    uint32_t seed = get_rand_32();
+    size_t target = 16; // fixed length for now
+    if (target > out_len - 1) target = out_len - 1;
+    for (size_t i = 0; i < target; i++) {
+        // Mix hardware random each iteration for unpredictability
+        uint32_t r = get_rand_32() ^ (seed + i * 0x9E3779B1u);
+        out[i] = charset[r % charset_len];
+    }
+    out[target] = '\0';
+}
+
+// Claim handler: if not claimed, generate password, respond, then schedule AP restart.
+static void claim_handler(struct tcp_pcb *pcb, const char *request) {
+    (void)request;
+    API_DBG("[API] claim_handler called\n");
+    if (g_claimed) {
+        http_send_json(pcb, 409, "{\"error\":\"already_claimed\"}");
+        return;
+    }
+    generate_random_psk(g_last_psk, sizeof(g_last_psk));
+    g_claimed = true;
+
+    // Create one-shot timer to rotate AP after grace period so response is delivered first.
+    const uint32_t GRACE_MS = 750; // client sees password then AP restarts
+    TimerHandle_t t = xTimerCreate("ap_rot", pdMS_TO_TICKS(GRACE_MS), pdFALSE, NULL, ap_rotate_timer_cb);
+    if (t) {
+        xTimerStart(t, 0);
+    } else {
+        // Fallback: rotate immediately
+        ap_rotate_timer_cb(NULL);
+    }
+
+    char body[160];
+    int n = snprintf(body, sizeof(body),
+                     "{\"status\":\"ok\",\"ssid\":\"%s\",\"new_password\":\"%s\",\"reconnect_in_ms\":%u}",
+                     wifi_ap_get_config()->ssid, g_last_psk, GRACE_MS);
+    (void)n;
+    http_send_json(pcb, 200, body);
+}
+
+// CPU utilization tracking handled inside cpu_monitor (runtime-only)
 
 static void ping_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
     http_send_json(pcb, 200, "{\"message\":\"pong\"}");
+}
+
+// Lightweight health endpoint for quick connectivity checks
+static void health_handler(struct tcp_pcb *pcb, const char *request) {
+    (void)request;
+    http_send_json(pcb, 200, "{\"ok\":true}");
 }
 
 /*
@@ -37,29 +119,30 @@ Status handler - returns system status information, including attecc status and 
 */
 static void status_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
-    print_dbg("[API] status_handler called\n");
+    API_DBG("[API] status_handler called\n");
     
     uint32_t ms = to_ms_since_boot(get_absolute_time());
     uint32_t s = ms / 1000;
-    print_dbg("[API] got uptime: %u\n", (unsigned)s);
+    API_DBG("[API] got uptime: %u\n", (unsigned)s);
     
-    print_dbg("[API] checking provisioning state\n");
+    API_DBG("[API] checking provisioning state\n");
     bool provisioned = (protocol_state.current_state == 0x40);
-    print_dbg("[API] provisioned: %d\n", provisioned);
+    API_DBG("[API] provisioned: %d\n", provisioned);
     
     char body[256];
-    print_dbg("[API] building JSON response\n");
+    API_DBG("[API] building JSON response\n");
     int n = snprintf(body, sizeof(body),
-        "{\"provisioned\":%s, \"state\":\"0x%02X\", \"uptime_s\":%u}",
+        "{\"provisioned\":%s, \"state\":\"0x%02X\", \"uptime_s\":%u, \"wifi_configured\":%s}",
         provisioned ? "true" : "false",
         protocol_state.current_state,
-        (unsigned)s);
-    print_dbg("[API] snprintf returned: %d, body: %s\n", n, body);
+        (unsigned)s,
+        g_claimed ? "true" : "false");
+    API_DBG("[API] snprintf returned: %d, body: %s\n", n, body);
     (void)n;
     
-    print_dbg("[API] sending response\n");
+    API_DBG("[API] sending response\n");
     http_send_json(pcb, 200, body);
-    print_dbg("[API] response sent\n");
+    API_DBG("[API] response sent\n");
 }
 
 /**
@@ -73,7 +156,7 @@ static void status_handler(struct tcp_pcb *pcb, const char *request) {
  */
 static void network_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
-    print_dbg("[API] network_handler called\n");
+    API_DBG("[API] network_handler called\n");
     
     // Get AP IP
     const ip4_addr_t *ap_ip = netif_ip4_addr(&cyw43_state.netif[CYW43_ITF_AP]);
@@ -115,7 +198,7 @@ static void network_handler(struct tcp_pcb *pcb, const char *request) {
                 ip_octet);
             
             client_count++;
-            print_dbg("[API] client %d: %02X:%02X:%02X:%02X:%02X:%02X -> 192.168.4.%u\n",
+            API_DBG("[API] client %d: %02X:%02X:%02X:%02X:%02X:%02X -> 192.168.4.%u\n",
                 client_count, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], ip_octet);
         }
     }
@@ -123,9 +206,9 @@ static void network_handler(struct tcp_pcb *pcb, const char *request) {
     // Close JSON
     pos += snprintf(body + pos, sizeof(body) - pos, "]}");
     
-    print_dbg("[API] network info: SSID=MASTR-Token, AP_IP=%s, clients=%d\n", ap_ip_str, client_count);
+    API_DBG("[API] network info: SSID=MASTR-Token, AP_IP=%s, clients=%d\n", ap_ip_str, client_count);
     http_send_json(pcb, 200, body);
-    print_dbg("[API] network response sent\n");
+    API_DBG("[API] network response sent\n");
 }
 
 /**
@@ -136,14 +219,14 @@ static void network_handler(struct tcp_pcb *pcb, const char *request) {
  */
 static void ram_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
-    print_dbg("[API] ram_handler called\n");
+    API_DBG("[API] ram_handler called\n");
     
     // Get heap info
     size_t free_heap = xPortGetFreeHeapSize();
     size_t total_heap = configTOTAL_HEAP_SIZE;
     size_t used_heap = total_heap - free_heap;
     
-    print_dbg("[API] heap - total: %u, used: %u, free: %u\n", 
+    API_DBG("[API] heap - total: %u, used: %u, free: %u\n", 
         (unsigned)total_heap, (unsigned)used_heap, (unsigned)free_heap);
     
     // Build JSON response
@@ -156,9 +239,9 @@ static void ram_handler(struct tcp_pcb *pcb, const char *request) {
         (unsigned)((used_heap * 100) / total_heap));
     (void)n;
     
-    print_dbg("[API] ram response: %s\n", body);
+    API_DBG("[API] ram response: %s\n", body);
     http_send_json(pcb, 200, body);
-    print_dbg("[API] ram response sent\n");
+    API_DBG("[API] ram response sent\n");
 }
 
 /**
@@ -202,7 +285,7 @@ static float read_internal_temperature_c(void) {
 
 static void temperature_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
-    print_dbg("[API] temperature_handler called\n");
+    API_DBG("[API] temperature_handler called\n");
 
     float t = read_internal_temperature_c();
     // Clamp to a sane range in case of transient anomalies
@@ -212,7 +295,7 @@ static void temperature_handler(struct tcp_pcb *pcb, const char *request) {
     char body[128];
     int n = snprintf(body, sizeof(body), "{\"temp_c\":%.1f}", (double)t);
     (void)n;
-    print_dbg("[API] temperature: %.1f C\n", (double)t);
+    API_DBG("[API] temperature: %.1f C\n", (double)t);
     http_send_json(pcb, 200, body);
 }
 
@@ -229,61 +312,9 @@ static void temperature_handler(struct tcp_pcb *pcb, const char *request) {
  */
 static void cpu_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
-    print_dbg("[API] cpu_handler called\n");
-
-    // Runtime stats percent (primary)
-    uint32_t rt_cpu_percent = cpu_get_percent();
-
-    // Tick snapshots for fallback and smoothing
-    uint32_t current_total_ticks = xTaskGetTickCount();
-    uint32_t current_idle_ticks  = g_idleTicks;
-
-    uint32_t cpu_percent = cpu_last_report;
-
-    if (cpu_last_total_ticks > 0) {
-        uint32_t total_delta = current_total_ticks - cpu_last_total_ticks;
-        uint32_t idle_delta  = current_idle_ticks  - cpu_last_idle_ticks;
-
-        if (idle_delta <= total_delta) {
-            cpu_accum_total += total_delta;
-            cpu_accum_idle  += idle_delta;
-        }
-
-        // Build a small tick window (~50ms) for stability
-        const uint32_t MIN_TICK_WINDOW = 50; // at 1kHz tick
-        if (cpu_accum_total >= MIN_TICK_WINDOW) {
-            uint32_t busy_ticks_accum = (cpu_accum_total > cpu_accum_idle) ? (cpu_accum_total - cpu_accum_idle) : 0;
-            uint32_t tick_cpu_accum = (cpu_accum_total > 0) ? (busy_ticks_accum * 100U + (cpu_accum_total/2U)) / cpu_accum_total : 0; // rounded
-
-            // Choose runtime stats if valid; else tick
-            uint32_t chosen = (rt_cpu_percent <= 100U) ? rt_cpu_percent : tick_cpu_accum;
-            if (chosen == 0 && busy_ticks_accum > 0) {
-                chosen = 1; // floor to 1% if any busy ticks observed
-            }
-            cpu_percent = chosen;
-            cpu_last_report = cpu_percent;
-
-            cpu_accum_total = 0;
-            cpu_accum_idle  = 0;
-            print_dbg("[API] CPU(win)=%u%% (rt=%u%%, tick_accum=%u%%, win_total=%u, win_idle=%u)\n",
-                      cpu_percent, rt_cpu_percent, tick_cpu_accum, cpu_accum_total, cpu_accum_idle);
-        } else {
-            // Pending window: keep last report but show latest rt percent in logs
-            print_dbg("[API] CPU(pending) last=%u%% (rt=%u%%, accum_total=%u)\n",
-                      cpu_last_report, rt_cpu_percent, cpu_accum_total);
-        }
-    } else {
-        print_dbg("[API] CPU: initializing\n");
-        cpu_percent = (rt_cpu_percent <= 100U) ? rt_cpu_percent : 0;
-        cpu_last_report = cpu_percent;
-    }
-
-    // Store for next call
-    cpu_last_total_ticks = current_total_ticks;
-    cpu_last_idle_ticks  = current_idle_ticks;
-
+    API_DBG("[API] cpu_handler called\n");
+    uint32_t cpu_percent = cpu_get_percent();
     if (cpu_percent > 100U) cpu_percent = 100U;
-
     char body[128];
     int n = snprintf(body, sizeof(body), "{\"cpu_percent\":%u}", cpu_percent);
     (void)n;
@@ -293,10 +324,12 @@ static void cpu_handler(struct tcp_pcb *pcb, const char *request) {
 
 void api_register_routes(void) {
     http_register("/api/ping", ping_handler);
+    http_register("/api/health", health_handler);
     http_register("/api/status", status_handler);
     http_register("/api/network", network_handler);
     http_register("/api/ram", ram_handler);
     http_register("/api/temp", temperature_handler);
     http_register("/api/cpu", cpu_handler);
+    http_register("/api/claim", claim_handler);
     print_dbg("API routes registered\n");
 }
