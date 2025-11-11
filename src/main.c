@@ -11,6 +11,7 @@
 #include "protocol.h"
 #include "crypto.h"
 #include "net/wifi_ap.h"
+#include "cpu_monitor.h"
 
 // Add binary info
 bi_decl(bi_program_name("MASTR"));
@@ -75,6 +76,8 @@ void watchdog_task(void *params) {
         }
     }
 }
+
+// Idle monitor removed (tick-based idle accounting deprecated)
 
 int main() {
     stdio_init_all();
@@ -183,6 +186,8 @@ int main() {
             NULL
         );
     }
+
+    // Idle monitor task removed
 
     // Start the FreeRTOS scheduler
     vTaskStartScheduler();

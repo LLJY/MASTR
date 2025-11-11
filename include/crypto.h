@@ -31,6 +31,13 @@
 bool crypto_init(void);
 
 /**
+ * @brief Check if token is provisioned (has valid host pubkey)
+ * 
+ * Provisioning is complete when the host's permanent public key has been written to Slot 8.
+ * 
+ */
+
+/**
  * @brief Encrypt a frame payload using AES-128-GCM
  * 
  * Encrypts the payload and adds authentication tag for integrity.
