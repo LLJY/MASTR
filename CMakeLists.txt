@@ -154,6 +154,8 @@ add_executable(pico_project_template
     src/protocol.c
     src/crypto.c
     src/cpu_monitor.c
+    src/hooks.c
+    src/ap_watchdog.c
     src/hal/hal_pico_i2c.c
     src/net/wifi_ap.c
     src/net/ap/ap_manager.c
@@ -173,6 +175,7 @@ target_link_libraries(pico_project_template
     pico_cyw43_arch_lwip_threadsafe_background
     pico_lwip_http
     hardware_adc
+    hardware_watchdog
 )
 
 # Enable usb output, disable uart output

@@ -93,6 +93,8 @@ int reconfigure_access_point(const char *ssid, const char *pass) {
     return 0;
 }
 
+
+
 /**
  * Get DHCP server instance for querying connected clients
  */

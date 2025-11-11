@@ -172,6 +172,31 @@ bool crypto_ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_
 bool crypto_ecdh_read_host_pubkey(uint8_t* host_pubkey_out);
 
 /**
+ * @brief Store host's permanent public key into ATECC608A Slot 8
+ *
+ * Writes the 64-byte P-256 public key (X||Y) into slot 8 using two
+ * 32-byte block writes (block 0 and block 1). This centralizes the
+ * storage logic so both the serial protocol path and HTTP API path
+ * can call the same function.
+ *
+ * Layout note (slot 8):
+ *   - Block 0..1: host public key (64 bytes)
+ *   - Block 2:    golden hash (32 bytes)
+ *
+ * @param host_pubkey Pointer to 64-byte buffer containing X||Y
+ * @return true on success, false otherwise
+ */
+bool crypto_set_host_pubkey(const uint8_t* host_pubkey);
+
+// Token permanent public key prefetch/cache API
+// Spawn background task (idempotent) to prefetch token permanent public key
+void crypt_spawn_pubkey_prefetch(void);
+// Retrieve cached hex (128 chars + NUL). Returns true if ready; sets *ready_out if provided.
+bool crypt_get_cached_token_pubkey_hex(const char **hex_out, bool *ready_out);
+// Returns true if prefetch permanently failed
+bool crypt_token_pubkey_failed(void);
+
+/**
  * @brief Verify signature using host's permanent public key
  * 
  * @param message Message that was signed (typically hash)

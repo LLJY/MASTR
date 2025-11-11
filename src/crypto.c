@@ -1,13 +1,14 @@
 #include "crypto.h"
 #include "protocol.h"
 #include "serial.h"
-#include <string.h>
+#include <stdbool.h>
 #include <stdint.h>
-
+#include <string.h>
 #ifndef UNIT_TEST
+#include "FreeRTOS.h"
+#include "task.h"
 #include "pico/stdlib.h"
 #include "pico/rand.h"
-// Use hardware SHA256 on RP2350, mbedtls software SHA256 on RP2040
 #ifdef LIB_PICO_SHA256
 #include "pico/sha256.h"
 #endif
@@ -25,6 +26,59 @@ bool crypto_init(void) {
     return true;
 #endif
 }
+
+// ============================================================================
+// Token permanent public key prefetch/cache
+// ============================================================================
+static char g_token_pubkey_hex[129];
+static volatile bool g_token_pubkey_ready = false;
+static volatile bool g_token_pubkey_failed = false;
+
+// Prefetch task only for non-unit-test builds
+#ifndef UNIT_TEST
+static void token_pubkey_prefetch_task(void *arg) {
+    (void)arg;
+    for (int attempt = 0; attempt < 3 && !g_token_pubkey_ready; attempt++) {
+        uint8_t raw[64];
+        ATCA_STATUS status = atcab_get_pubkey(SLOT_PERMANENT_PRIVKEY, raw);
+        if (status == ATCA_SUCCESS) {
+            static const char HEX[] = "0123456789abcdef";
+            for (int i = 0; i < 64; i++) {
+                uint8_t b = raw[i];
+                g_token_pubkey_hex[i*2]     = HEX[b >> 4];
+                g_token_pubkey_hex[i*2 + 1] = HEX[b & 0x0F];
+            }
+            g_token_pubkey_hex[128] = '\0';
+            g_token_pubkey_ready = true;
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    if (!g_token_pubkey_ready) {
+        g_token_pubkey_failed = true;
+    }
+    vTaskDelete(NULL);
+}
+
+void crypt_spawn_pubkey_prefetch(void) {
+    if (!g_token_pubkey_ready && !g_token_pubkey_failed) {
+        xTaskCreate(token_pubkey_prefetch_task, "pk_prefetch", 768, NULL, tskIDLE_PRIORITY + 1, NULL);
+    }
+}
+#else
+void crypt_spawn_pubkey_prefetch(void) {
+    // Mark failed in unit test mode; hardware not available
+    g_token_pubkey_failed = true;
+}
+#endif
+
+bool crypt_get_cached_token_pubkey_hex(const char **hex_out, bool *ready_out) {
+    if (hex_out) *hex_out = g_token_pubkey_hex;
+    if (ready_out) *ready_out = g_token_pubkey_ready;
+    return g_token_pubkey_ready;
+}
+
+bool crypt_token_pubkey_failed(void) { return g_token_pubkey_failed; }
 
 /**
  * Generates initialization vector for AES-GCM using hardware RNG.
@@ -382,6 +436,34 @@ bool crypto_ecdh_read_host_pubkey(uint8_t* host_pubkey_out) {
 #else
     (void)host_pubkey_out;
     return false;
+#endif
+}
+
+/**
+ * Stores 64-byte host permanent public key (X||Y) into ATECC608A Slot 8.
+ * Performs two 32-byte block writes (block 0 and 1). Does not touch block 2
+ * where the golden hash resides.
+ */
+bool crypto_set_host_pubkey(const uint8_t* host_pubkey) {
+#ifndef UNIT_TEST
+    if (!host_pubkey) return false;
+    // Write two blocks of 32 bytes
+    for (int block = 0; block < 2; block++) {
+        ATCA_STATUS status = atcab_write_zone(
+            ATCA_ZONE_DATA,
+            SLOT_HOST_PUBKEY,   // slot 8
+            block,              // block 0 or 1
+            0,                  // offset
+            host_pubkey + (block * 32),
+            32
+        );
+        if (status != ATCA_SUCCESS) {
+            return false;
+        }
+    }
+    return true;
+#else
+    (void)host_pubkey; return false;
 #endif
 }
 
