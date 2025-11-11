@@ -9,7 +9,7 @@
 #include <stdbool.h>
 #include "serial.h"
 
-#define MAX_ROUTES 8
+#define MAX_ROUTES 16  // Increased to accommodate new provisioning endpoints
 struct route_entry { const char *path; http_handler_fn handler; };
 static struct route_entry routes[MAX_ROUTES];
 
@@ -18,9 +18,15 @@ int http_register(const char *path, http_handler_fn handler) {
         if (routes[i].path == NULL) {
             routes[i].path = path;
             routes[i].handler = handler;
+#ifdef DEBUG
+            print_dbg("[HTTP] Registered route: %s\n", path);
+#endif
             return 0;
         }
     }
+#ifdef DEBUG
+    print_dbg("[HTTP] Route table full, failed to register: %s\n", path);
+#endif
     return -1;
 }
 

@@ -1,6 +1,7 @@
 #include "wifi_ap.h"
 #include "serial.h"
 #include "ap/ap_manager.h"
+#include "ap_watchdog.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -122,12 +123,18 @@ void wifi_background_task(void *params) {
     
     print_dbg("WiFi background task started (priority 25, 50ms interval)\n");
     
+    // Initialize watchdog for this task
+    ap_watchdog_init(xTaskGetCurrentTaskHandle());
+    
     while (true) {
         #ifndef UNIT_TEST
         // Sleep briefly to allow CYW43 driver and lwIP to process events
         // CYW43_ARCH_THREADSAFE_BACKGROUND automatically handles the background work
         // This sleep allows task switching and prevents blocking
         vTaskDelay(pdMS_TO_TICKS(50));
+        
+        // Notify watchdog that AP is alive
+        ap_watchdog_notify_alive();
         #else
         vTaskDelay(pdMS_TO_TICKS(50));
         #endif
