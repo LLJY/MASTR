@@ -9,6 +9,10 @@
 #include <stdbool.h>
 #include "serial.h"
 
+// Forward declarations for connection tracking
+static void http_connection_opened(void);
+static void http_connection_closed(void);
+
 #define MAX_ROUTES 16  // Increased to accommodate new provisioning endpoints
 struct route_entry { const char *path; http_handler_fn handler; };
 static struct route_entry routes[MAX_ROUTES];
@@ -44,6 +48,9 @@ static void reset_state(void) {
     g_state.request[0] = '\0';
     g_state.in_use = false;
     g_state.close_when_sent = false;
+    
+    // Track connection closing
+    http_connection_closed();
 }
 
 static void send_response(struct tcp_pcb *pcb, const char *status, const char *content_type, const char *body) {
@@ -124,7 +131,14 @@ static err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err
 
 static err_t http_accept(void *arg, struct tcp_pcb *client_pcb, err_t err) {
     (void)arg; (void)err;
-    if (g_state.in_use) { tcp_close(client_pcb); return ERR_OK; }
+    if (g_state.in_use) { 
+        tcp_close(client_pcb); 
+        return ERR_OK; 
+    }
+    
+    // Track new connection
+    http_connection_opened();
+    
     g_state.in_use = true; g_state.request_len = 0; g_state.close_when_sent = false; g_state.request[0] = '\0';
     tcp_arg(client_pcb, &g_state);
     tcp_recv(client_pcb, http_recv);
@@ -140,4 +154,24 @@ void http_server_init(void) {
     pcb = tcp_listen(pcb);
     tcp_accept(pcb, http_accept);
     print_dbg("HTTP server initialized on port 80\n");
+}
+
+// ============================================================================
+// HTTP Server Monitoring Functions
+// ============================================================================
+
+static uint32_t g_active_connections = 0;
+
+static void http_connection_opened(void) {
+    g_active_connections++;
+}
+
+static void http_connection_closed(void) {
+    if (g_active_connections > 0) {
+        g_active_connections--;
+    }
+}
+
+uint32_t http_get_active_connections(void) {
+    return g_active_connections;
 }

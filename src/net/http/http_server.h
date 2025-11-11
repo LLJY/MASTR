@@ -1,6 +1,8 @@
 #ifndef HTTP_SERVER_H
 #define HTTP_SERVER_H
 
+#include <stdint.h>
+
 struct tcp_pcb;
 typedef void (*http_handler_fn)(struct tcp_pcb *pcb, const char *request);
 
@@ -12,5 +14,8 @@ int http_register(const char *path, http_handler_fn handler);
 
 // Helper to send a JSON response with a numeric status code (200, 404, ...)
 void http_send_json(struct tcp_pcb *pcb, int status_code, const char *json_body);
+
+// HTTP connection monitoring functions
+uint32_t http_get_active_connections(void);
 
 #endif // HTTP_SERVER_H
