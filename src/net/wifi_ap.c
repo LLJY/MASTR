@@ -1,7 +1,6 @@
 #include "wifi_ap.h"
 #include "serial.h"
 #include "ap/ap_manager.h"
-#include "ap_watchdog.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -123,18 +122,12 @@ void wifi_background_task(void *params) {
     
     print_dbg("WiFi background task started (priority 25, 50ms interval)\n");
     
-    // Initialize watchdog for this task
-    ap_watchdog_init(xTaskGetCurrentTaskHandle());
-    
     while (true) {
         #ifndef UNIT_TEST
         // Sleep briefly to allow CYW43 driver and lwIP to process events
         // CYW43_ARCH_THREADSAFE_BACKGROUND automatically handles the background work
         // This sleep allows task switching and prevents blocking
         vTaskDelay(pdMS_TO_TICKS(50));
-        
-        // Notify watchdog that AP is alive
-        ap_watchdog_notify_alive();
         #else
         vTaskDelay(pdMS_TO_TICKS(50));
         #endif
@@ -198,4 +191,56 @@ void wifi_ap_init_task(void *params) {
     
     // Task completes after starting AP
     vTaskDelete(NULL);
+}
+
+// ============================================================================
+// AP Stability and Monitoring Functions
+// ============================================================================
+
+/**
+ * Check if WiFi AP is currently active and operational
+ * @return true if AP is running and healthy, false otherwise
+ */
+bool wifi_ap_is_active(void) {
+    #ifndef UNIT_TEST
+    // Check basic config state
+    if (!wifi_config.is_running) {
+        return false;
+    }
+    
+    // Could add more sophisticated health checks here:
+    // - Check CYW43 link status
+    // - Verify DHCP server is responding
+    // - Check for recent client activity
+    
+    return true;
+    #else
+    return wifi_config.is_running;
+    #endif
+}
+
+/**
+ * Attempt to restart the WiFi AP
+ * @return true if restart was successful, false otherwise
+ */
+bool wifi_ap_restart(void) {
+    print_dbg("WiFi AP: Attempting restart...\n");
+    
+    // Stop current AP
+    wifi_ap_stop();
+    
+    // Brief delay to ensure clean shutdown
+    #ifndef UNIT_TEST
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    #endif
+    
+    // Restart with current configuration
+    bool success = wifi_ap_start(&wifi_config);
+    if (success) {
+        print_dbg("WiFi AP: Restart successful\n");
+    } else {
+        print_dbg("WiFi AP: Restart failed\n");
+    }
+    
+    return success;
 }

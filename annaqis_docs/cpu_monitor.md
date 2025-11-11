@@ -35,7 +35,6 @@ Where the deltas are taken over the accumulation window maintained internally.
    - Although currently the `/api/cpu` path uses runtime stats directly, retaining the idle tick counter aids debugging and allows a rapid fallback if runtime stats become unavailable or are disabled.
 
 ## Core Function: `cpu_get_percent()`
-
 High‑level flow:
 
 1. Guard: If scheduler not running or too few tasks (<2), return cached percent.
