@@ -349,6 +349,217 @@ static void token_info_handler(struct tcp_pcb *pcb, const char *request){
     http_send_json(pcb, 200, body);
 }
 
+/**
+ * Set host public key handler (non-blocking)
+ * POST /api/provision/host_pubkey
+ * Expects: 64-byte hex string in request body (128 hex chars)
+ * Returns: {"status":"accepted"} or {"error":"..."}
+ */
+static void set_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
+    print_dbg("API: set_host_pubkey_handler called (non-blocking)\n");
+    
+    // Find the request body (after double CRLF)
+    const char *body_start = strstr(request, "\r\n\r\n");
+    if (!body_start) {
+        print_dbg("API: missing request body\n");
+        http_send_json(pcb, 400, "{\"error\":\"missing_body\"}");
+        return;
+    }
+    body_start += 4; // Skip past "\r\n\r\n"
+    
+    // Trim whitespace and newlines from the end  
+    const char *body_end = body_start + strlen(body_start);
+    while (body_end > body_start && (body_end[-1] == '\r' || body_end[-1] == '\n' || body_end[-1] == ' ')) {
+        body_end--;
+    }
+    
+    // Create null-terminated string for the hex data
+    size_t hex_len = body_end - body_start;
+    print_dbg("API: received hex data length: %zu\n", hex_len);
+    
+    if (hex_len != 128) {
+        print_dbg("API: invalid hex length, expected 128, got %zu\n", hex_len);
+        char error_msg[100];
+        snprintf(error_msg, sizeof(error_msg), "{\"error\":\"invalid_length\",\"expected\":128,\"got\":%zu}", hex_len);
+        http_send_json(pcb, 400, error_msg);
+        return;
+    }
+    
+    // Validate hex format before proceeding
+    for (size_t i = 0; i < 128; i++) {
+        char c = body_start[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+            print_dbg("API: invalid hex character at position %zu: '%c'\n", i, c);
+            http_send_json(pcb, 400, "{\"error\":\"invalid_hex_format\"}");
+            return;
+        }
+    }
+    
+    print_dbg("API: hex validation passed, creating null-terminated string\n");
+    
+    // Create null-terminated string for the crypto function
+    char hex_str[129];
+    memcpy(hex_str, body_start, 128);
+    hex_str[128] = '\0';
+    
+    print_dbg("API: requesting non-blocking host pubkey write\n");
+    
+    // Use the new non-blocking crypto function
+    bool write_ready, write_failed;
+    bool accepted = crypt_request_host_pubkey_write(hex_str, &write_ready, &write_failed);
+    
+    if (!accepted) {
+        print_dbg("API: Host pubkey write request rejected (already pending)\n");
+        http_send_json(pcb, 409, "{\"error\":\"write_pending\",\"retry_ms\":100}");
+        return;
+    }
+    
+    print_dbg("API: Host pubkey write request accepted\n");
+    http_send_json(pcb, 202, "{\"status\":\"accepted\",\"message\":\"write_queued\"}");
+}
+
+/**
+ * Get host public key handler (non-blocking)
+ * GET /api/provision/host_pubkey/get
+ * Returns: {"host_pubkey":"<hex_string>"} or {"status":"reading"} or {"error":"..."}
+ */
+static void get_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
+    (void)request;
+    print_dbg("API: get_host_pubkey_handler called (non-blocking)\n");
+    
+    const char *hex_pubkey = NULL;
+    bool ready = false;
+    bool failed = false;
+    
+    crypt_get_cached_host_pubkey_hex(&hex_pubkey, &ready, &failed);
+    
+    if (failed) {
+        print_dbg("API: Host pubkey read failed\n");
+        http_send_json(pcb, 500, "{\"error\":\"read_failed\"}");
+        return;
+    }
+    
+    if (ready && hex_pubkey && hex_pubkey[0] != '\0') {
+        // Return cached result
+        char body[180];
+        int n = snprintf(body, sizeof(body), "{\"host_pubkey\":\"%s\",\"cached\":true}", hex_pubkey);
+        (void)n;
+        print_dbg("API: Returning cached host pubkey\n");
+        http_send_json(pcb, 200, body);
+        return;
+    }
+    
+    // Still reading
+    print_dbg("API: Host pubkey not ready yet\n");
+    http_send_json(pcb, 503, "{\"status\":\"reading\",\"retry_ms\":100}");
+}
+
+/**
+ * Get host public key write status handler (non-blocking)
+ * GET /api/provision/host_pubkey/status
+ * Returns: {"status":"ready|pending|failed"} 
+ */
+static void host_pubkey_status_handler(struct tcp_pcb *pcb, const char *request) {
+    (void)request;
+    print_dbg("API: host_pubkey_status_handler called\n");
+    
+    bool write_ready = false;
+    bool write_failed = false;
+    
+    crypt_get_host_pubkey_write_status(&write_ready, &write_failed);
+    
+    if (write_failed) {
+        http_send_json(pcb, 200, "{\"status\":\"failed\"}");
+    } else if (write_ready) {
+        http_send_json(pcb, 200, "{\"status\":\"ready\"}");
+    } else {
+        http_send_json(pcb, 200, "{\"status\":\"pending\"}");
+    }
+}
+
+/**
+ * Set golden hash handler - POST /api/provision/golden_hash
+ * Non-blocking version: validates input then triggers async crypto operation
+ */
+static void set_golden_hash_handler(struct tcp_pcb *pcb, const char *request) {
+    // Extract hex data from request body
+    const char *body_start = strstr(request, "\r\n\r\n");
+    if (!body_start) {
+        http_send_json(pcb, 400, "{\"error\":\"missing_body\"}");
+        return;
+    }
+    body_start += 4;
+    
+    // Trim whitespace
+    const char *body_end = body_start + strlen(body_start);
+    while (body_end > body_start && (body_end[-1] == '\r' || body_end[-1] == '\n' || body_end[-1] == ' ')) {
+        body_end--;
+    }
+    
+    size_t hex_len = body_end - body_start;
+    if (hex_len != 64) {
+        http_send_json(pcb, 400, "{\"error\":\"invalid_length\"}");
+        return;
+    }
+    
+    // Validate hex format
+    for (size_t i = 0; i < 64; i++) {
+        char c = body_start[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+            http_send_json(pcb, 400, "{\"error\":\"invalid_hex\"}");
+            return;
+        }
+    }
+    
+    // Convert hex to bytes
+    uint8_t golden_hash[32];
+    for (int i = 0; i < 32; i++) {
+        char hex_pair[3] = {body_start[i*2], body_start[i*2 + 1], '\0'};
+        golden_hash[i] = (uint8_t)strtol(hex_pair, NULL, 16);
+    }
+    
+    // Trigger async golden hash operation (non-blocking)
+    bool queued = crypt_spawn_golden_hash_task_with_data(golden_hash);
+    if (!queued) {
+        http_send_json(pcb, 503, "{\"error\":\"task_busy\"}");
+        return;
+    }
+    
+    // Return immediate response - client should poll status
+    http_send_json(pcb, 202, "{\"status\":\"accepted\",\"message\":\"golden_hash_operation_queued\"}");
+}
+
+/**
+ * Get golden hash status handler - GET /api/provision/golden_hash/status
+ * Returns the result of the most recent golden hash operation
+ */
+static void golden_hash_status_handler(struct tcp_pcb *pcb, const char *request) {
+    (void)request; // Unused parameter
+    
+    bool write_ready = false;
+    bool write_failed = false;
+    uint8_t golden_hash_result[32];
+    
+    crypt_get_golden_hash_write_status(&write_ready, &write_failed, golden_hash_result);
+    
+    if (write_ready) {
+        // Convert result hash to hex
+        char hex_response[65];
+        for (int i = 0; i < 32; i++) {
+            sprintf(&hex_response[i*2], "%02x", golden_hash_result[i]);
+        }
+        
+        char response[150];
+        snprintf(response, sizeof(response), "{\"status\":\"success\",\"golden_hash\":\"%s\"}", hex_response);
+        http_send_json(pcb, 200, response);
+    } else if (write_failed) {
+        http_send_json(pcb, 200, "{\"status\":\"error\",\"error\":\"crypto_operation_failed\"}");
+    } else {
+        // Still processing or idle
+        http_send_json(pcb, 200, "{\"status\":\"processing\"}");
+    }
+}
+
 void api_register_routes(void) {
     http_register("/api/ping", ping_handler);
     http_register("/api/health", health_handler);
@@ -360,7 +571,21 @@ void api_register_routes(void) {
     http_register("/api/claim", claim_handler);
     // Provisioning token public key endpoint (single canonical path)
     http_register("/api/provision/token_info", token_info_handler);
+    // Provisioning host public key endpoints (non-blocking versions)
+    http_register("/api/provision/host_pubkey", set_host_pubkey_handler);  // POST to set
+    http_register("/api/provision/host_pubkey/get", get_host_pubkey_handler);  // GET to read
+    http_register("/api/provision/host_pubkey/status", host_pubkey_status_handler);  // GET write status
+    // Provisioning golden hash endpoints (non-blocking versions)
+    http_register("/api/provision/golden_hash", set_golden_hash_handler);  // POST to set
+    http_register("/api/provision/golden_hash/status", golden_hash_status_handler);  // GET status
     // Ask crypt layer to spawn prefetch task (low priority)
     crypt_spawn_pubkey_prefetch();
+    
+    // Start background task for host pubkey operations (non-blocking)
+    crypt_spawn_host_pubkey_task();
+    
+    // Start background task for golden hash operations (non-blocking)
+    crypt_spawn_golden_hash_task();
+    
     print_dbg("API routes registered\n");
 }

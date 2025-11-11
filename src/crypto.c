@@ -467,6 +467,40 @@ bool crypto_set_host_pubkey(const uint8_t* host_pubkey) {
 #endif
 }
 
+int crypto_hex_to_bytes(const char* hex_str, uint8_t* out_bytes, size_t max_bytes) {
+    if (!hex_str || !out_bytes) return -1;
+    
+    size_t hex_len = strlen(hex_str);
+    if (hex_len % 2 != 0) return -1; // Must be even number of hex chars
+    
+    size_t byte_count = hex_len / 2;
+    if (byte_count > max_bytes) return -1; // Not enough space in output buffer
+    
+    for (size_t i = 0; i < byte_count; i++) {
+        char hex_pair[3] = {hex_str[i*2], hex_str[i*2+1], '\0'};
+        unsigned int byte;
+        if (sscanf(hex_pair, "%02x", &byte) != 1) {
+            return -1; // Invalid hex character
+        }
+        out_bytes[i] = (uint8_t)byte;
+    }
+    
+    return (int)byte_count;
+}
+
+bool crypto_set_host_pubkey_hex(const char* hex_pubkey) {
+    if (!hex_pubkey) return false;
+    
+    // Expect exactly 128 hex characters (64 bytes)
+    if (strlen(hex_pubkey) != 128) return false;
+    
+    uint8_t host_pubkey[64];
+    int bytes_converted = crypto_hex_to_bytes(hex_pubkey, host_pubkey, sizeof(host_pubkey));
+    if (bytes_converted != 64) return false;
+    
+    return crypto_set_host_pubkey(host_pubkey);
+}
+
 /**
  * Verifies ECDSA signature using ATECC608A hardware verification.
  * Uses host's permanent public key for verification.
@@ -646,3 +680,204 @@ bool crypto_set_golden_hash(uint8_t* p_hash){
  * 
  * @return true if host public key is stored and valid, false otherwise.
  */
+bool crypto_is_token_provisioned(void) {
+    uint8_t host_pubkey[64];
+    return ecdh_read_host_pubkey(host_pubkey);
+}
+
+// ============================================================================
+// Host pubkey non-blocking management system
+// ============================================================================
+static char g_host_pubkey_hex[129];
+static volatile bool g_host_pubkey_read_ready = false;
+static volatile bool g_host_pubkey_read_failed = false;
+static volatile bool g_host_pubkey_write_pending = false;
+static volatile bool g_host_pubkey_write_ready = false;
+static volatile bool g_host_pubkey_write_failed = false;
+static char g_pending_host_pubkey_hex[129];
+
+// Golden hash operation state (non-blocking)
+static uint8_t g_golden_hash_result[32];
+static volatile bool g_golden_hash_write_pending = false;
+static volatile bool g_golden_hash_write_ready = false;
+static volatile bool g_golden_hash_write_failed = false;
+static uint8_t g_pending_golden_hash[32];
+
+#ifndef UNIT_TEST
+// Background task for host pubkey operations
+static void host_pubkey_task(void *arg) {
+    (void)arg;
+    
+    // First, try to read existing host pubkey
+    uint8_t host_pubkey[64];
+    bool read_success = ecdh_read_host_pubkey(host_pubkey);
+    
+    if (read_success) {
+        // Convert to hex
+        static const char HEX[] = "0123456789abcdef";
+        for (int i = 0; i < 64; i++) {
+            uint8_t b = host_pubkey[i];
+            g_host_pubkey_hex[i*2]     = HEX[b >> 4];
+            g_host_pubkey_hex[i*2 + 1] = HEX[b & 0x0F];
+        }
+        g_host_pubkey_hex[128] = '\0';
+        g_host_pubkey_read_ready = true;
+    } else {
+        g_host_pubkey_read_failed = true;
+    }
+    
+    // Main loop for write operations
+    while (1) {
+        if (g_host_pubkey_write_pending) {
+            g_host_pubkey_write_pending = false;
+            g_host_pubkey_write_ready = false;
+            g_host_pubkey_write_failed = false;
+            
+            // Convert hex to bytes
+            uint8_t new_host_pubkey[64];
+            int bytes_converted = crypto_hex_to_bytes(g_pending_host_pubkey_hex, new_host_pubkey, sizeof(new_host_pubkey));
+            
+            if (bytes_converted == 64) {
+                // Attempt to write (blocking operation safe in background task)
+                bool write_success = crypto_set_host_pubkey(new_host_pubkey);
+                if (write_success) {
+                    // Update cache with new value
+                    strcpy(g_host_pubkey_hex, g_pending_host_pubkey_hex);
+                    g_host_pubkey_read_ready = true;
+                    g_host_pubkey_read_failed = false;
+                    g_host_pubkey_write_ready = true;
+                } else {
+                    g_host_pubkey_write_failed = true;
+                }
+            } else {
+                g_host_pubkey_write_failed = true;
+            }
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+void crypt_spawn_host_pubkey_task(void) {
+    static bool task_spawned = false;
+    if (!task_spawned) {
+        xTaskCreate(host_pubkey_task, "hpk_task", 1024, NULL, tskIDLE_PRIORITY + 1, NULL);
+        task_spawned = true;
+    }
+}
+#else
+void crypt_spawn_host_pubkey_task(void) {
+    // No-op in unit test mode
+}
+#endif
+
+// Non-blocking host pubkey API functions
+bool crypt_get_cached_host_pubkey_hex(const char **hex_out, bool *ready_out, bool *failed_out) {
+    if (hex_out) *hex_out = g_host_pubkey_hex;
+    if (ready_out) *ready_out = g_host_pubkey_read_ready;
+    if (failed_out) *failed_out = g_host_pubkey_read_failed;
+    return g_host_pubkey_read_ready;
+}
+
+bool crypt_request_host_pubkey_write(const char *hex_pubkey, bool *write_ready_out, bool *write_failed_out) {
+    if (!hex_pubkey || strlen(hex_pubkey) != 128) {
+        return false;
+    }
+    
+    if (g_host_pubkey_write_pending) {
+        // Write already in progress
+        if (write_ready_out) *write_ready_out = false;
+        if (write_failed_out) *write_failed_out = false;
+        return false;
+    }
+    
+    // Copy hex string and start write operation
+    strcpy(g_pending_host_pubkey_hex, hex_pubkey);
+    g_host_pubkey_write_pending = true;
+    g_host_pubkey_write_ready = false;
+    g_host_pubkey_write_failed = false;
+    
+    if (write_ready_out) *write_ready_out = g_host_pubkey_write_ready;
+    if (write_failed_out) *write_failed_out = g_host_pubkey_write_failed;
+    return true;
+}
+
+bool crypt_get_host_pubkey_write_status(bool *write_ready_out, bool *write_failed_out) {
+    if (write_ready_out) *write_ready_out = g_host_pubkey_write_ready;
+    if (write_failed_out) *write_failed_out = g_host_pubkey_write_failed;
+    return g_host_pubkey_write_ready;
+}
+
+#ifndef UNIT_TEST
+// Background task for golden hash operations (non-blocking)
+static void golden_hash_task(void *arg) {
+    (void)arg;
+    
+    while (1) {
+        if (g_golden_hash_write_pending) {
+            g_golden_hash_write_pending = false;
+            g_golden_hash_write_ready = false;
+            g_golden_hash_write_failed = false;
+            
+            // Set golden hash (blocking operation safe in background task)
+            bool write_success = crypto_set_golden_hash(g_pending_golden_hash);
+            if (write_success) {
+                // Verify by reading back
+                uint8_t verify_hash[32];
+                bool read_success = crypto_get_golden_hash(verify_hash);
+                if (read_success && memcmp(g_pending_golden_hash, verify_hash, 32) == 0) {
+                    // Success - store result
+                    memcpy(g_golden_hash_result, verify_hash, 32);
+                    g_golden_hash_write_ready = true;
+                } else {
+                    g_golden_hash_write_failed = true;
+                }
+            } else {
+                g_golden_hash_write_failed = true;
+            }
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+void crypt_spawn_golden_hash_task(void) {
+    static bool task_spawned = false;
+    if (!task_spawned) {
+        xTaskCreate(golden_hash_task, "gh_task", 1024, NULL, tskIDLE_PRIORITY + 1, NULL);
+        task_spawned = true;
+    }
+}
+#else
+void crypt_spawn_golden_hash_task(void) {
+    // No-op in unit test mode
+}
+#endif
+
+// Non-blocking golden hash API functions
+bool crypt_spawn_golden_hash_task_with_data(const uint8_t* golden_hash) {
+    if (!golden_hash) {
+        return false;
+    }
+    
+    if (g_golden_hash_write_pending) {
+        return false;  // Already busy
+    }
+    
+    // Copy golden hash data and start write operation
+    memcpy(g_pending_golden_hash, golden_hash, 32);
+    g_golden_hash_write_pending = true;
+    g_golden_hash_write_ready = false;
+    g_golden_hash_write_failed = false;
+    
+    return true;
+}
+
+bool crypt_get_golden_hash_write_status(bool *write_ready_out, bool *write_failed_out, uint8_t *golden_hash_out) {
+    if (write_ready_out) *write_ready_out = g_golden_hash_write_ready;
+    if (write_failed_out) *write_failed_out = g_golden_hash_write_failed;
+    if (golden_hash_out && g_golden_hash_write_ready) {
+        memcpy(golden_hash_out, g_golden_hash_result, 32);
+    }
+    return g_golden_hash_write_ready;
+}

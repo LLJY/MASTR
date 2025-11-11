@@ -106,4 +106,20 @@ void http_server_task(void *params);
  */
 void wifi_ap_init_task(void *params);
 
+// ============================================================================
+// AP Stability and Monitoring Functions
+// ============================================================================
+
+/**
+ * Check if WiFi AP is currently active and operational
+ * @return true if AP is running and healthy, false otherwise
+ */
+bool wifi_ap_is_active(void);
+
+/**
+ * Attempt to restart the WiFi AP
+ * @return true if restart was successful, false otherwise
+ */
+bool wifi_ap_restart(void);
+
 #endif // WIFI_AP_H
