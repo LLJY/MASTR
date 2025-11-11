@@ -22,6 +22,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "timers.h"
+#include "semphr.h"
 
 // Throttled API logging: set to 1 to enable verbose API logs to serial
 #ifndef API_DEBUG
@@ -37,6 +38,8 @@
 static bool g_claimed = false;
 // Cache the last generated password so we can optionally re-display or debug
 static char g_last_psk[33] = ""; // 32 chars + NUL
+
+// Token pubkey caching/prefetch handled by crypt.c now
 
 // One-shot timer callback to restart AP with new password
 // Worker task to perform AP restart in a normal task context (not timer task)
@@ -321,6 +324,30 @@ static void cpu_handler(struct tcp_pcb *pcb, const char *request) {
     http_send_json(pcb, 200, body);
 }
 
+/**
+ * Token info handler - returns token's public key for provisioning
+ * GET /api/provision/token_info
+ * Returns: {"token_pubkey":"<hex_string>"}
+ */
+static void token_info_handler(struct tcp_pcb *pcb, const char *request){
+    (void)request;
+    bool ready = false;
+    const char *hex = NULL;
+    ready = crypt_get_cached_token_pubkey_hex(&hex, &ready);
+    API_DBG("[API] token_info_handler called (ready=%d failed=%d)\n", ready, crypt_token_pubkey_failed());
+    if (!ready) {
+        if (crypt_token_pubkey_failed()) {
+            http_send_json(pcb, 500, "{\"error\":\"pubkey_prefetch_failed\"}");
+        } else {
+            http_send_json(pcb, 503, "{\"status\":\"initializing\",\"retry_ms\":100}");
+        }
+        return;
+    }
+    char body[180];
+    int n = snprintf(body, sizeof(body), "{\"token_pubkey\":\"%s\",\"cached\":true}", hex);
+    (void)n;
+    http_send_json(pcb, 200, body);
+}
 
 void api_register_routes(void) {
     http_register("/api/ping", ping_handler);
@@ -331,5 +358,9 @@ void api_register_routes(void) {
     http_register("/api/temp", temperature_handler);
     http_register("/api/cpu", cpu_handler);
     http_register("/api/claim", claim_handler);
+    // Provisioning token public key endpoint (single canonical path)
+    http_register("/api/provision/token_info", token_info_handler);
+    // Ask crypt layer to spawn prefetch task (low priority)
+    crypt_spawn_pubkey_prefetch();
     print_dbg("API routes registered\n");
 }
