@@ -21,6 +21,7 @@ class CryptoInterface(ABC):
     - AES-GCM encryption/decryption
     """
     
+
     def __init__(self) -> None:
         """Initialize crypto implementation"""
         self.session_key: Optional[bytes] = None
