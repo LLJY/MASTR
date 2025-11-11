@@ -140,12 +140,7 @@ void http_server_task(void *params) {
  * @param params Pointer to wifi_ap_config_t (or NULL to use default)
  */
 void wifi_ap_init_task(void *params) {
-    print_dbg("WiFi AP init task started - waiting 60 seconds for scheduler/provisioning stability\n");
-    
-
-    vTaskDelay(pdMS_TO_TICKS(100));
-    
-    print_dbg("WiFi AP init task: 60 second delay complete, starting initialization\n");
+    print_dbg("WiFi AP init task started\n");
     
     wifi_ap_config_t *config = (wifi_ap_config_t *)params;
     if (config == NULL) {

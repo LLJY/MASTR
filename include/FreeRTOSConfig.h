@@ -43,7 +43,7 @@
 /* Scheduler Related */
 #define configUSE_PREEMPTION                    1
 #define configUSE_TICKLESS_IDLE                 0
-#define configUSE_IDLE_HOOK                     0
+#define configUSE_IDLE_HOOK                     1
 #define configUSE_TICK_HOOK                     0
 #define configTICK_RATE_HZ                      ( ( TickType_t ) 1000 )
 #define configMAX_PRIORITIES                    32
@@ -82,9 +82,23 @@
 #define configUSE_PASSIVE_IDLE_HOOK             0
 
 /* Run time and task stats gathering related definitions. */
-#define configGENERATE_RUN_TIME_STATS           0
+#define configGENERATE_RUN_TIME_STATS           1
 #define configUSE_TRACE_FACILITY                1
 #define configUSE_STATS_FORMATTING_FUNCTIONS    0
+
+/* Runtime counter for stats - use hardware microsecond timer for accuracy */
+/* Prefer Pico SDK time header, fall back to extern if not available to parser */
+#ifndef __has_include
+#define __has_include(x) 0
+#endif
+#include <stdint.h>
+#ifdef __cplusplus
+extern "C" uint32_t freertos_runtime_counter_get(void);
+#else
+extern uint32_t freertos_runtime_counter_get(void);
+#endif
+#define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS() ((void)0)
+#define portGET_RUN_TIME_COUNTER_VALUE() (freertos_runtime_counter_get())
 
 /* Co-routine related definitions. */
 #define configUSE_CO_ROUTINES                   0
@@ -154,6 +168,7 @@ to exclude the API function. */
 #define INCLUDE_xTaskGetIdleTaskHandle          1
 #define INCLUDE_eTaskGetState                   1
 #define INCLUDE_xTimerPendFunctionCall          1
+
 #define INCLUDE_xTaskAbortDelay                 1
 #define INCLUDE_xTaskGetHandle                  1
 #define INCLUDE_xTaskResumeFromISR              1
