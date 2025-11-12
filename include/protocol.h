@@ -203,7 +203,7 @@ typedef struct{
 } protocol_state_t;
 
 // Global protocol state (defined in protocol.c)
-extern protocol_state_t protocol_state;
+extern protocol_state_t g_protocol_state;
 
 // forward declarations
 void protocol_provision();

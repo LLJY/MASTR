@@ -263,13 +263,13 @@ bool crypto_decrypt_frame_if_needed(
     uint8_t* decrypted_frame_out,
     uint16_t* decrypted_len_out
 ) {
-    extern protocol_state_t protocol_state;
+    extern protocol_state_t g_protocol_state;
     
     // Use decoupled encryption flag instead of state
-    bool should_decrypt = protocol_state.is_encrypted;
+    bool should_decrypt = g_protocol_state.is_encrypted;
     
     if (should_decrypt) {
-        if (!crypto_aes_gcm_decrypt(frame_buffer, frame_len, protocol_state.aes_session_key,
+        if (!crypto_aes_gcm_decrypt(frame_buffer, frame_len, g_protocol_state.aes_session_key,
                             decrypted_frame_out, decrypted_len_out)) {
             return false;
         }
@@ -296,13 +296,13 @@ bool crypto_encrypt_frame_if_needed(
 ) {
     (void)msg_type;  // Unused in this implementation
     
-    extern protocol_state_t protocol_state;
+    extern protocol_state_t g_protocol_state;
     
     // Use decoupled encryption flag instead of state
-    bool should_encrypt = protocol_state.is_encrypted;
+    bool should_encrypt = g_protocol_state.is_encrypted;
     
     if (should_encrypt) {
-        if (!crypto_aes_gcm_encrypt(frame, frame_len, protocol_state.aes_session_key,
+        if (!crypto_aes_gcm_encrypt(frame, frame_len, g_protocol_state.aes_session_key,
                             encrypted_frame_out, encrypted_len_out)) {
             return false;
         }

@@ -68,7 +68,7 @@ void watchdog_task(void *params) {
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(1000));  // Check every 1 second
         
-        protocol_state.last_watchdog_check = time_us_64();
+        g_protocol_state.last_watchdog_check = time_us_64();
         uint32_t current_time_ms = to_ms_since_boot(get_absolute_time());
         
         // === SYSTEM HEALTH MONITORING ===
@@ -145,13 +145,13 @@ void watchdog_task(void *params) {
         }
         
         // Skip session monitoring if in permanent halt state
-        if (protocol_state.in_halt_state) {
+        if (g_protocol_state.in_halt_state) {
             continue;
         }
         
         // === SESSION TIMEOUT MONITORING ===
         // Only monitor timeout when in runtime state (0x40)
-        if (protocol_state.current_state == 0x40) {
+        if (g_protocol_state.current_state == 0x40) {
             if (!protocol_is_session_valid()) {
                 print_dbg("WATCHDOG: Session timeout detected - triggering re-attestation\n");
                 protocol_trigger_reattestation();
@@ -239,16 +239,16 @@ int main() {
     serial_init(serial_task_handle);
 
     // Initialize protocol state
-    protocol_state.protocol_begin_timestamp = time_us_64();
-    protocol_state.current_state = H2T_ECDH_SHARE;  // Start at ECDH state (0x20)
+    g_protocol_state.protocol_begin_timestamp = time_us_64();
+    g_protocol_state.current_state = H2T_ECDH_SHARE;  // Start at ECDH state (0x20)
     
     // Initialize session management
-    protocol_state.is_encrypted = false;         // Encryption disabled until first ECDH
-    protocol_state.session_valid = false;        // No valid session yet
-    protocol_state.session_start_timestamp = 0;
-    protocol_state.session_timeout_ms = 30000;   // Default 30 second timeout
-    protocol_state.last_watchdog_check = 0;
-    protocol_state.in_halt_state = false;        // Not in halt state
+    g_protocol_state.is_encrypted = false;         // Encryption disabled until first ECDH
+    g_protocol_state.session_valid = false;        // No valid session yet
+    g_protocol_state.session_start_timestamp = 0;
+    g_protocol_state.session_timeout_ms = 30000;   // Default 30 second timeout
+    g_protocol_state.last_watchdog_check = 0;
+    g_protocol_state.in_halt_state = false;        // Not in halt state
 
     // TODO check if the token has been provisioned, if not, do special magic to
     // start the web server in a special admin mode.

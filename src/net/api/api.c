@@ -129,7 +129,7 @@ static void status_handler(struct tcp_pcb *pcb, const char *request) {
     API_DBG("[API] got uptime: %u\n", (unsigned)s);
     
     API_DBG("[API] checking provisioning state\n");
-    bool provisioned = (protocol_state.current_state == 0x40);
+    bool provisioned = (g_protocol_state.current_state == 0x40);
     API_DBG("[API] provisioned: %d\n", provisioned);
     
     char body[256];
@@ -137,7 +137,7 @@ static void status_handler(struct tcp_pcb *pcb, const char *request) {
     int n = snprintf(body, sizeof(body),
         "{\"provisioned\":%s, \"state\":\"0x%02X\", \"uptime_s\":%u, \"wifi_configured\":%s}",
         provisioned ? "true" : "false",
-        protocol_state.current_state,
+        g_protocol_state.current_state,
         (unsigned)s,
         g_claimed ? "true" : "false");
     API_DBG("[API] snprintf returned: %d, body: %s\n", n, body);

@@ -28,9 +28,9 @@
 
 // Ring buffer for interrupt-driven reception
 #define RX_BUFFER_SIZE 512
-static uint8_t rx_buffer[RX_BUFFER_SIZE];
-static volatile uint16_t rx_write_idx = 0;
-static volatile uint16_t rx_read_idx = 0;
+static uint8_t g_rx_buffer[RX_BUFFER_SIZE];
+static volatile uint16_t g_rx_write_idx = 0;
+static volatile uint16_t g_rx_read_idx = 0;
 
 #ifndef UNIT_TEST
 // Task handle for direct task notification (more efficient than semaphore)
@@ -38,10 +38,10 @@ static TaskHandle_t serial_task_handle = NULL;
 #endif
 
 // Frame processing state
-static uint8_t frame_buffer[MAX_PAYLOAD_SIZE + 4]; // 4 is the size of the frame metadata
-static uint16_t frame_len = 0;
-static bool in_frame = false;
-static bool in_escape = false;
+static uint8_t g_frame_buffer[MAX_PAYLOAD_SIZE + 4]; // 4 is the size of the frame metadata
+static uint16_t g_frame_len = 0;
+static bool g_in_frame = false;
+static bool g_in_escape = false;
 
 // Forward declarations
 void print_dbg(const char *format, ...);
@@ -83,25 +83,25 @@ void serial_init(TaskHandle_t task_handle) {
 
 // Read data from USB CDC into ring buffer
 static inline uint16_t rx_buffer_available() {
-    return (rx_write_idx >= rx_read_idx) ? 
-           (rx_write_idx - rx_read_idx) : 
-           (RX_BUFFER_SIZE - rx_read_idx + rx_write_idx);
+    return (g_rx_write_idx >= g_rx_read_idx) ? 
+           (g_rx_write_idx - g_rx_read_idx) : 
+           (RX_BUFFER_SIZE - g_rx_read_idx + g_rx_write_idx);
 }
 
 static inline bool rx_buffer_get(uint8_t *byte) {
-    if (rx_read_idx == rx_write_idx) {
+    if (g_rx_read_idx == g_rx_write_idx) {
         return false; // Buffer empty
     }
-    *byte = rx_buffer[rx_read_idx];
-    rx_read_idx = (rx_read_idx + 1) % RX_BUFFER_SIZE;
+    *byte = g_rx_buffer[g_rx_read_idx];
+    g_rx_read_idx = (g_rx_read_idx + 1) % RX_BUFFER_SIZE;
     return true;
 }
 
 static void rx_buffer_fill() {
     #ifndef UNIT_TEST
     while (tud_cdc_available()) {
-        uint16_t next_write = (rx_write_idx + 1) % RX_BUFFER_SIZE;
-        if (next_write == rx_read_idx) {
+        uint16_t next_write = (g_rx_write_idx + 1) % RX_BUFFER_SIZE;
+        if (next_write == g_rx_read_idx) {
             // Buffer full, drop data
             print_dbg("RX buffer overflow!");
             break;
@@ -109,8 +109,8 @@ static void rx_buffer_fill() {
         
         int c = tud_cdc_read_char();
         if (c >= 0) {
-            rx_buffer[rx_write_idx] = (uint8_t)c;
-            rx_write_idx = next_write;
+            g_rx_buffer[g_rx_write_idx] = (uint8_t)c;
+            g_rx_write_idx = next_write;
         }
     }
     #endif
@@ -144,8 +144,8 @@ void serial_process_data()
     uint8_t c;
     while (rx_buffer_get(&c)) {
         // escape sequence handling with byte stuffing
-        if (in_escape) {
-            in_escape = false;
+        if (g_in_escape) {
+            g_in_escape = false;
             uint8_t unstuffed_byte;
             switch (c) {
                 case ESC_SUB_SOF: unstuffed_byte = SOF_BYTE; break;
@@ -153,14 +153,14 @@ void serial_process_data()
                 case ESC_SUB_ESC: unstuffed_byte = ESC_BYTE; break;
                 default:
                     // PROTOCOL ERROR: Invalid byte after ESC. Abort frame.
-                    in_frame = false;
+                    g_in_frame = false;
                     print_dbg("PROTOCOL ERROR: Invalid escape sequence: 0x%02X", c);
                     continue;
             }
             
             // no need to sizeof if you already have the magic numbers to do so.
-            if (in_frame && frame_len < (MAX_PAYLOAD_SIZE + 4)) {
-                frame_buffer[frame_len++] = unstuffed_byte;
+            if (g_in_frame && g_frame_len < (MAX_PAYLOAD_SIZE + 4)) {
+                g_frame_buffer[g_frame_len++] = unstuffed_byte;
             }
             continue;
         }
@@ -168,28 +168,28 @@ void serial_process_data()
         switch (c) {
             case SOF_BYTE:
                 // reset when SOF
-                in_frame = true;
-                in_escape = false;
-                frame_len = 0;
+                g_in_frame = true;
+                g_in_escape = false;
+                g_frame_len = 0;
                 break;
 
             case EOF_BYTE:
                 // EOF reached, complete the processing.
-                if (in_frame) {
-                    in_frame = false;
+                if (g_in_frame) {
+                    g_in_frame = false;
                     serial_process_complete_frame();
                 }
                 break;
 
             case ESC_BYTE:
                 // this is the start of a sequence
-                in_escape = true;
+                g_in_escape = true;
                 break;
 
             default:
                 // Normal data byte
-                if (in_frame && frame_len < sizeof(frame_buffer)) {
-                    frame_buffer[frame_len++] = c;
+                if (g_in_frame && g_frame_len < sizeof(g_frame_buffer)) {
+                    g_frame_buffer[g_frame_len++] = c;
                 }
                 break;
         }
@@ -201,7 +201,7 @@ static void serial_process_complete_frame() {
     uint8_t decrypted_frame[MAX_PAYLOAD_SIZE + 4];
     uint16_t decrypted_len = 0;
     
-    if (!crypto_decrypt_frame_if_needed(frame_buffer, frame_len, decrypted_frame, &decrypted_len)) {
+    if (!crypto_decrypt_frame_if_needed(g_frame_buffer, g_frame_len, decrypted_frame, &decrypted_len)) {
         print_dbg("CRYPTO ERROR: Failed to decrypt frame\n");
         send_shutdown_signal();
         return;
