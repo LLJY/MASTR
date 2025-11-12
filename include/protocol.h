@@ -203,7 +203,7 @@ typedef struct{
 } protocol_state_t;
 
 // Global protocol state (defined in protocol.c)
-extern protocol_state_t protocol_state;
+extern protocol_state_t g_protocol_state;
 
 // forward declarations
 void protocol_provision(const uint8_t* p_golden_hash, const uint8_t* p_pub_key, const uint8_t golden_hash_len, const uint8_t pub_key_len);
