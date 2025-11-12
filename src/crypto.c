@@ -1,4 +1,4 @@
-#include "crypt.h"
+#include "crypto.h"
 #include "protocol.h"
 #include "serial.h"
 #include <stdbool.h>
@@ -19,7 +19,7 @@
 #include "cryptoauthlib.h"
 #endif
 
-bool crypt_init(void) {
+bool crypto_init(void) {
 #ifndef UNIT_TEST
     return true;
 #else
@@ -135,7 +135,7 @@ static void compute_sha256(const uint8_t* message, size_t message_len, uint8_t* 
  * Output format: [IV (12)][Ciphertext (N)][Tag (16)]
  * 
  * @return true if encryption succeeded, false otherwise
- */bool aes_gcm_encrypt(
+ */bool crypto_aes_gcm_encrypt(
     const uint8_t* plaintext,
     uint16_t plaintext_len,
     const uint8_t* key,
@@ -196,7 +196,7 @@ static void compute_sha256(const uint8_t* message, size_t message_len, uint8_t* 
  * 
  * @return true if decryption and authentication succeeded, false otherwise
  */
-bool aes_gcm_decrypt(
+bool crypto_aes_gcm_decrypt(
     const uint8_t* ciphertext,
     uint16_t ciphertext_len,
     const uint8_t* key,
@@ -257,7 +257,7 @@ bool aes_gcm_decrypt(
  *
  * @return true if processing succeeded, false on decryption failure
  */
-bool decrypt_frame_if_needed(
+bool crypto_decrypt_frame_if_needed(
     uint8_t* frame_buffer,
     uint16_t frame_len,
     uint8_t* decrypted_frame_out,
@@ -269,7 +269,7 @@ bool decrypt_frame_if_needed(
     bool should_decrypt = protocol_state.is_encrypted;
     
     if (should_decrypt) {
-        if (!aes_gcm_decrypt(frame_buffer, frame_len, protocol_state.aes_session_key,
+        if (!crypto_aes_gcm_decrypt(frame_buffer, frame_len, protocol_state.aes_session_key,
                             decrypted_frame_out, decrypted_len_out)) {
             return false;
         }
@@ -287,7 +287,7 @@ bool decrypt_frame_if_needed(
  *
  * @return true if processing succeeded, false on encryption failure
  */
-bool encrypt_frame_if_needed(
+bool crypto_encrypt_frame_if_needed(
     uint8_t msg_type,
     const uint8_t* frame,
     uint16_t frame_len,
@@ -302,7 +302,7 @@ bool encrypt_frame_if_needed(
     bool should_encrypt = protocol_state.is_encrypted;
     
     if (should_encrypt) {
-        if (!aes_gcm_encrypt(frame, frame_len, protocol_state.aes_session_key,
+        if (!crypto_aes_gcm_encrypt(frame, frame_len, protocol_state.aes_session_key,
                             encrypted_frame_out, encrypted_len_out)) {
             return false;
         }
@@ -322,7 +322,7 @@ bool encrypt_frame_if_needed(
  * @param session_key_out Output buffer for 16-byte AES key
  * @return true if derivation succeeded, false otherwise
  */
-bool derive_session_key(const uint8_t* shared_secret, uint8_t* session_key_out) {
+bool crypto_derive_session_key(const uint8_t* shared_secret, uint8_t* session_key_out) {
 #ifndef UNIT_TEST
     
     const uint8_t salt[] = "MASTR-Session-Key-v1"; // Application-specific salt
@@ -360,7 +360,7 @@ bool derive_session_key(const uint8_t* shared_secret, uint8_t* session_key_out) 
  * @param ephemeral_pubkey_out Output buffer for 64-byte public key (X||Y)
  * @return true if generation succeeded, false otherwise
  */
-bool ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out) {
+bool crypto_ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out) {
 #ifndef UNIT_TEST
     ATCA_STATUS status = atcab_genkey(ATCA_TEMPKEY_KEYID, ephemeral_pubkey_out);
     
@@ -384,7 +384,7 @@ bool ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out) {
  * @param signature_out Output buffer for 64-byte signature
  * @return true if signing succeeded, false otherwise
  */
-bool ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_len,
+bool crypto_ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_len,
                                    uint8_t* signature_out) {
 #ifndef UNIT_TEST
     uint8_t hash[32];
@@ -415,7 +415,7 @@ bool ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_len,
  * @param host_pubkey_out Output buffer for 64-byte public key
  * @return true if read succeeded, false otherwise
  */
-bool ecdh_read_host_pubkey(uint8_t* host_pubkey_out) {
+bool crypto_ecdh_read_host_pubkey(uint8_t* host_pubkey_out) {
 #ifndef UNIT_TEST
     for (int block = 0; block < 2; block++) {
         ATCA_STATUS status = atcab_read_zone(
@@ -511,7 +511,7 @@ bool crypto_set_host_pubkey_hex(const char* hex_pubkey) {
  * @param host_pubkey 64-byte host public key
  * @return true if signature is valid, false otherwise
  */
-bool ecdh_verify_signature(const uint8_t* message, size_t message_len,
+bool crypto_ecdh_verify_signature(const uint8_t* message, size_t message_len,
                            const uint8_t* signature, const uint8_t* host_pubkey) {
 #ifndef UNIT_TEST
     uint8_t hash[32];
@@ -545,7 +545,7 @@ bool ecdh_verify_signature(const uint8_t* message, size_t message_len,
  * 
  * @param peer_ephemeral_pubkey Peer's 64-byte ephemeral public key
  * */
-bool ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
+bool crypto_ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
                                 uint8_t* shared_secret_out) {
 #ifndef UNIT_TEST
     ATCA_STATUS status = atcab_ecdh_tempkey(
@@ -570,7 +570,7 @@ bool ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
  * @param token_pubkey_out Output buffer for 64-byte public key
  * @return true if read succeeded, false otherwise
  */
-bool ecdh_read_token_pubkey(uint8_t* token_pubkey_out) {
+bool crypto_ecdh_read_token_pubkey(uint8_t* token_pubkey_out) {
 #ifndef UNIT_TEST
     ATCA_STATUS status = atcab_get_pubkey(SLOT_PERMANENT_PRIVKEY, token_pubkey_out);
     

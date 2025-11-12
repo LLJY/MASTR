@@ -16,9 +16,9 @@ typedef void* TaskHandle_t;
 void serial_init(TaskHandle_t task_handle);
 
 // Process received data (called from interrupt or task)
-void process_serial_data();
+void serial_process_data();
 
-static void process_complete_frame();
+static void serial_process_complete_frame();
 
 void send_message(uint8_t msg_type, uint8_t *payload, uint16_t len);
 

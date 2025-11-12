@@ -2,7 +2,7 @@
 #include "constants.h"
 #include "protocol.h"
 #include "serial.h"
-#include "crypt.h"
+#include "crypto.h"
 #include "unity.h"
 #include <stdbool.h>
 #include <string.h>
@@ -97,7 +97,7 @@ void tud_cdc_write_flush(void) {
 }
 
 // Mock crypto functions (for unit tests, encryption is passthrough)
-bool decrypt_frame_if_needed(
+bool crypto_decrypt_frame_if_needed(
     uint8_t* frame_buffer,
     uint16_t frame_len,
     uint8_t* decrypted_frame_out,
@@ -109,7 +109,7 @@ bool decrypt_frame_if_needed(
     return true;
 }
 
-bool encrypt_frame_if_needed(
+bool crypto_encrypt_frame_if_needed(
     uint8_t msg_type,
     const uint8_t* frame,
     uint16_t frame_len,

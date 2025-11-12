@@ -1,5 +1,5 @@
 #include "mock_crypto.h"
-#include "crypt.h"
+#include "crypto.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -51,7 +51,7 @@ void mock_crypto_get_shared_secret(uint8_t* secret_out) {
 }
 
 // Mock ECDH functions
-bool ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out) {
+bool crypto_ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out) {
     if (mock_crypto_state.ecdh_generate_should_fail) {
         return false;
     }
@@ -68,7 +68,7 @@ bool ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out) {
     return true;
 }
 
-bool ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_len, 
+bool crypto_ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_len, 
                                    uint8_t* signature_out) {
     (void)message;
     (void)message_len;
@@ -80,12 +80,12 @@ bool ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_len,
     return true;
 }
 
-bool ecdh_read_host_pubkey(uint8_t* host_pubkey_out) {
+bool crypto_ecdh_read_host_pubkey(uint8_t* host_pubkey_out) {
     memcpy(host_pubkey_out, mock_crypto_state.host_permanent_pubkey, 64);
     return true;
 }
 
-bool ecdh_verify_signature(const uint8_t* message, size_t message_len,
+bool crypto_ecdh_verify_signature(const uint8_t* message, size_t message_len,
                            const uint8_t* signature, const uint8_t* host_pubkey) {
     (void)message;
     (void)message_len;
@@ -95,7 +95,7 @@ bool ecdh_verify_signature(const uint8_t* message, size_t message_len,
     return mock_crypto_state.signature_verify_should_pass;
 }
 
-bool ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
+bool crypto_ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
                                 uint8_t* shared_secret_out) {
     (void)peer_ephemeral_pubkey;
     
@@ -108,7 +108,7 @@ bool ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
     return true;
 }
 
-bool ecdh_read_token_pubkey(uint8_t* token_pubkey_out) {
+bool crypto_ecdh_read_token_pubkey(uint8_t* token_pubkey_out) {
     memcpy(token_pubkey_out, mock_crypto_state.token_permanent_pubkey, 64);
     return true;
 }
@@ -136,7 +136,7 @@ bool crypto_set_golden_hash(uint8_t* p_hash) {
 }
 
 // Mock session key derivation (uses simple XOR for testing)
-bool derive_session_key(const uint8_t* shared_secret, uint8_t* session_key_out) {
+bool crypto_derive_session_key(const uint8_t* shared_secret, uint8_t* session_key_out) {
     // Simple deterministic key derivation for testing
     for (int i = 0; i < 16; i++) {
         session_key_out[i] = shared_secret[i] ^ shared_secret[i + 16];
