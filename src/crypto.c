@@ -60,25 +60,25 @@ static void token_pubkey_prefetch_task(void *arg) {
     vTaskDelete(NULL);
 }
 
-void crypt_spawn_pubkey_prefetch(void) {
+void crypto_spawn_pubkey_prefetch(void) {
     if (!g_token_pubkey_ready && !g_token_pubkey_failed) {
         xTaskCreate(token_pubkey_prefetch_task, "pk_prefetch", 768, NULL, tskIDLE_PRIORITY + 1, NULL);
     }
 }
 #else
-void crypt_spawn_pubkey_prefetch(void) {
+void crypto_spawn_pubkey_prefetch(void) {
     // Mark failed in unit test mode; hardware not available
     g_token_pubkey_failed = true;
 }
 #endif
 
-bool crypt_get_cached_token_pubkey_hex(const char **hex_out, bool *ready_out) {
+bool crypto_get_cached_token_pubkey_hex(const char **hex_out, bool *ready_out) {
     if (hex_out) *hex_out = g_token_pubkey_hex;
     if (ready_out) *ready_out = g_token_pubkey_ready;
     return g_token_pubkey_ready;
 }
 
-bool crypt_token_pubkey_failed(void) { return g_token_pubkey_failed; }
+bool crypto_token_pubkey_failed(void) { return g_token_pubkey_failed; }
 
 /**
  * Generates initialization vector for AES-GCM using hardware RNG.
@@ -682,7 +682,7 @@ bool crypto_set_golden_hash(uint8_t* p_hash){
  */
 bool crypto_is_token_provisioned(void) {
     uint8_t host_pubkey[64];
-    return ecdh_read_host_pubkey(host_pubkey);
+    return crypto_ecdh_read_host_pubkey(host_pubkey);
 }
 
 // ============================================================================
@@ -710,7 +710,7 @@ static void host_pubkey_task(void *arg) {
     
     // First, try to read existing host pubkey
     uint8_t host_pubkey[64];
-    bool read_success = ecdh_read_host_pubkey(host_pubkey);
+    bool read_success = crypto_ecdh_read_host_pubkey(host_pubkey);
     
     if (read_success) {
         // Convert to hex
@@ -758,7 +758,7 @@ static void host_pubkey_task(void *arg) {
     }
 }
 
-void crypt_spawn_host_pubkey_task(void) {
+void crypto_spawn_host_pubkey_task(void) {
     static bool task_spawned = false;
     if (!task_spawned) {
         xTaskCreate(host_pubkey_task, "hpk_task", 1024, NULL, tskIDLE_PRIORITY + 1, NULL);
@@ -766,20 +766,20 @@ void crypt_spawn_host_pubkey_task(void) {
     }
 }
 #else
-void crypt_spawn_host_pubkey_task(void) {
+void crypto_spawn_host_pubkey_task(void) {
     // No-op in unit test mode
 }
 #endif
 
 // Non-blocking host pubkey API functions
-bool crypt_get_cached_host_pubkey_hex(const char **hex_out, bool *ready_out, bool *failed_out) {
+bool crypto_get_cached_host_pubkey_hex(const char **hex_out, bool *ready_out, bool *failed_out) {
     if (hex_out) *hex_out = g_host_pubkey_hex;
     if (ready_out) *ready_out = g_host_pubkey_read_ready;
     if (failed_out) *failed_out = g_host_pubkey_read_failed;
     return g_host_pubkey_read_ready;
 }
 
-bool crypt_request_host_pubkey_write(const char *hex_pubkey, bool *write_ready_out, bool *write_failed_out) {
+bool crypto_request_host_pubkey_write(const char *hex_pubkey, bool *write_ready_out, bool *write_failed_out) {
     if (!hex_pubkey || strlen(hex_pubkey) != 128) {
         return false;
     }
@@ -802,7 +802,7 @@ bool crypt_request_host_pubkey_write(const char *hex_pubkey, bool *write_ready_o
     return true;
 }
 
-bool crypt_get_host_pubkey_write_status(bool *write_ready_out, bool *write_failed_out) {
+bool crypto_get_host_pubkey_write_status(bool *write_ready_out, bool *write_failed_out) {
     if (write_ready_out) *write_ready_out = g_host_pubkey_write_ready;
     if (write_failed_out) *write_failed_out = g_host_pubkey_write_failed;
     return g_host_pubkey_write_ready;
@@ -841,7 +841,7 @@ static void golden_hash_task(void *arg) {
     }
 }
 
-void crypt_spawn_golden_hash_task(void) {
+void crypto_spawn_golden_hash_task(void) {
     static bool task_spawned = false;
     if (!task_spawned) {
         xTaskCreate(golden_hash_task, "gh_task", 1024, NULL, tskIDLE_PRIORITY + 1, NULL);
@@ -849,13 +849,13 @@ void crypt_spawn_golden_hash_task(void) {
     }
 }
 #else
-void crypt_spawn_golden_hash_task(void) {
+void crypto_spawn_golden_hash_task(void) {
     // No-op in unit test mode
 }
 #endif
 
 // Non-blocking golden hash API functions
-bool crypt_spawn_golden_hash_task_with_data(const uint8_t* golden_hash) {
+bool crypto_spawn_golden_hash_task_with_data(const uint8_t* golden_hash) {
     if (!golden_hash) {
         return false;
     }
@@ -873,7 +873,7 @@ bool crypt_spawn_golden_hash_task_with_data(const uint8_t* golden_hash) {
     return true;
 }
 
-bool crypt_get_golden_hash_write_status(bool *write_ready_out, bool *write_failed_out, uint8_t *golden_hash_out) {
+bool crypto_get_golden_hash_write_status(bool *write_ready_out, bool *write_failed_out, uint8_t *golden_hash_out) {
     if (write_ready_out) *write_ready_out = g_golden_hash_write_ready;
     if (write_failed_out) *write_failed_out = g_golden_hash_write_failed;
     if (golden_hash_out && g_golden_hash_write_ready) {
