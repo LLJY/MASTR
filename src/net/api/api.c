@@ -12,7 +12,7 @@
 #include "protocol.h"
 #include "ap/ap_manager.h"
 #include "dhcp/dhcpserver.h"
-#include "crypt.h"
+#include "crypto.h"
 #include "net/wifi_ap.h"
 #include "cryptoauthlib.h"
 #include "cpu_monitor.h"
@@ -333,10 +333,10 @@ static void token_info_handler(struct tcp_pcb *pcb, const char *request){
     (void)request;
     bool ready = false;
     const char *hex = NULL;
-    ready = crypt_get_cached_token_pubkey_hex(&hex, &ready);
-    API_DBG("[API] token_info_handler called (ready=%d failed=%d)\n", ready, crypt_token_pubkey_failed());
+    ready = crypto_get_cached_token_pubkey_hex(&hex, &ready);
+    API_DBG("[API] token_info_handler called (ready=%d failed=%d)\n", ready, crypto_token_pubkey_failed());
     if (!ready) {
-        if (crypt_token_pubkey_failed()) {
+        if (crypto_token_pubkey_failed()) {
             http_send_json(pcb, 500, "{\"error\":\"pubkey_prefetch_failed\"}");
         } else {
             http_send_json(pcb, 503, "{\"status\":\"initializing\",\"retry_ms\":100}");
@@ -406,7 +406,7 @@ static void set_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
     
     // Use the new non-blocking crypto function
     bool write_ready, write_failed;
-    bool accepted = crypt_request_host_pubkey_write(hex_str, &write_ready, &write_failed);
+    bool accepted = crypto_request_host_pubkey_write(hex_str, &write_ready, &write_failed);
     
     if (!accepted) {
         print_dbg("API: Host pubkey write request rejected (already pending)\n");
@@ -431,7 +431,7 @@ static void get_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
     bool ready = false;
     bool failed = false;
     
-    crypt_get_cached_host_pubkey_hex(&hex_pubkey, &ready, &failed);
+    crypto_get_cached_host_pubkey_hex(&hex_pubkey, &ready, &failed);
     
     if (failed) {
         print_dbg("API: Host pubkey read failed\n");
@@ -466,7 +466,7 @@ static void host_pubkey_status_handler(struct tcp_pcb *pcb, const char *request)
     bool write_ready = false;
     bool write_failed = false;
     
-    crypt_get_host_pubkey_write_status(&write_ready, &write_failed);
+    crypto_get_host_pubkey_write_status(&write_ready, &write_failed);
     
     if (write_failed) {
         http_send_json(pcb, 200, "{\"status\":\"failed\"}");
@@ -519,7 +519,7 @@ static void set_golden_hash_handler(struct tcp_pcb *pcb, const char *request) {
     }
     
     // Trigger async golden hash operation (non-blocking)
-    bool queued = crypt_spawn_golden_hash_task_with_data(golden_hash);
+    bool queued = crypto_spawn_golden_hash_task_with_data(golden_hash);
     if (!queued) {
         http_send_json(pcb, 503, "{\"error\":\"task_busy\"}");
         return;
@@ -540,7 +540,7 @@ static void golden_hash_status_handler(struct tcp_pcb *pcb, const char *request)
     bool write_failed = false;
     uint8_t golden_hash_result[32];
     
-    crypt_get_golden_hash_write_status(&write_ready, &write_failed, golden_hash_result);
+    crypto_get_golden_hash_write_status(&write_ready, &write_failed, golden_hash_result);
     
     if (write_ready) {
         // Convert result hash to hex
@@ -579,13 +579,13 @@ void api_register_routes(void) {
     http_register("/api/provision/golden_hash", set_golden_hash_handler);  // POST to set
     http_register("/api/provision/golden_hash/status", golden_hash_status_handler);  // GET status
     // Ask crypt layer to spawn prefetch task (low priority)
-    crypt_spawn_pubkey_prefetch();
+    crypto_spawn_pubkey_prefetch();
     
     // Start background task for host pubkey operations (non-blocking)
-    crypt_spawn_host_pubkey_task();
+    crypto_spawn_host_pubkey_task();
     
     // Start background task for golden hash operations (non-blocking)
-    crypt_spawn_golden_hash_task();
+    crypto_spawn_golden_hash_task();
     
     print_dbg("API routes registered\n");
 }
