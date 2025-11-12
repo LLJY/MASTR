@@ -31,6 +31,13 @@
 bool crypt_init(void);
 
 /**
+ * @brief Check if token is provisioned (has valid host pubkey)
+ * 
+ * Provisioning is complete when the host's permanent public key has been written to Slot 8.
+ * 
+ */
+
+/**
  * @brief Encrypt a frame payload using AES-128-GCM
  * 
  * Encrypts the payload and adds authentication tag for integrity.
@@ -165,6 +172,31 @@ bool ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_len,
 bool ecdh_read_host_pubkey(uint8_t* host_pubkey_out);
 
 /**
+ * @brief Store host's permanent public key into ATECC608A Slot 8
+ *
+ * Writes the 64-byte P-256 public key (X||Y) into slot 8 using two
+ * 32-byte block writes (block 0 and block 1). This centralizes the
+ * storage logic so both the serial protocol path and HTTP API path
+ * can call the same function.
+ *
+ * Layout note (slot 8):
+ *   - Block 0..1: host public key (64 bytes)
+ *   - Block 2:    golden hash (32 bytes)
+ *
+ * @param host_pubkey Pointer to 64-byte buffer containing X||Y
+ * @return true on success, false otherwise
+ */
+bool crypto_set_host_pubkey(const uint8_t* host_pubkey);
+
+// Token permanent public key prefetch/cache API
+// Spawn background task (idempotent) to prefetch token permanent public key
+void crypt_spawn_pubkey_prefetch(void);
+// Retrieve cached hex (128 chars + NUL). Returns true if ready; sets *ready_out if provided.
+bool crypt_get_cached_token_pubkey_hex(const char **hex_out, bool *ready_out);
+// Returns true if prefetch permanently failed
+bool crypt_token_pubkey_failed(void);
+
+/**
  * @brief Verify signature using host's permanent public key
  * 
  * @param message Message that was signed (typically hash)
@@ -253,5 +285,83 @@ bool crypto_get_golden_hash(uint8_t* p_result);
  * @return true if successful, false otherwise.
  */
 bool crypto_set_golden_hash(uint8_t* p_hash);
+
+/**
+ * Convert hex string to bytes
+ * @param hex_str Null-terminated hex string (e.g., "deadbeef")
+ * @param out_bytes Output buffer for bytes
+ * @param max_bytes Maximum number of bytes to write to out_bytes
+ * @return Number of bytes converted, or -1 on error
+ */
+int crypto_hex_to_bytes(const char* hex_str, uint8_t* out_bytes, size_t max_bytes);
+
+/**
+ * Set host public key from hex string
+ * @param hex_pubkey 128-character hex string representing 64 bytes
+ * @return true if successful, false otherwise
+ */
+bool crypto_set_host_pubkey_hex(const char* hex_pubkey);
+
+// ============================================================================
+// Non-blocking host pubkey management API
+// ============================================================================
+
+/**
+ * Spawns the background task for host pubkey operations.
+ * Call once during system initialization.
+ */
+void crypt_spawn_host_pubkey_task(void);
+
+/**
+ * Gets the cached host public key in hex format (non-blocking).
+ * 
+ * @param hex_out Pointer to receive hex string (128 chars + null terminator)
+ * @param ready_out Pointer to receive ready status (true if pubkey is cached)
+ * @param failed_out Pointer to receive failure status (true if read failed)
+ * @return true if pubkey is ready and cached, false otherwise
+ */
+bool crypt_get_cached_host_pubkey_hex(const char **hex_out, bool *ready_out, bool *failed_out);
+
+/**
+ * Requests a host public key write operation (non-blocking).
+ * The actual write happens in background task.
+ * 
+ * @param hex_pubkey 128-character hex string to write
+ * @param write_ready_out Pointer to receive write completion status (optional)
+ * @param write_failed_out Pointer to receive write failure status (optional)
+ * @return true if write request was accepted, false if invalid or already pending
+ */
+bool crypt_request_host_pubkey_write(const char *hex_pubkey, bool *write_ready_out, bool *write_failed_out);
+
+/**
+ * Gets the status of the last host pubkey write operation (non-blocking).
+ * 
+ * @param write_ready_out Pointer to receive write completion status
+ * @param write_failed_out Pointer to receive write failure status
+ * @return true if write completed successfully, false otherwise
+ */
+bool crypt_get_host_pubkey_write_status(bool *write_ready_out, bool *write_failed_out);
+
+/**
+ * Spawn the golden hash background task (one-time initialization)
+ * Safe to call multiple times - only creates task on first call
+ */
+void crypt_spawn_golden_hash_task(void);
+
+/**
+ * Queue a golden hash write operation (non-blocking)
+ * @param golden_hash 32-byte golden hash to write
+ * @return true if operation queued, false if busy
+ */
+bool crypt_spawn_golden_hash_task_with_data(const uint8_t* golden_hash);
+
+/**
+ * Get golden hash write operation status (non-blocking)
+ * @param write_ready_out Pointer to receive write completion status
+ * @param write_failed_out Pointer to receive write failure status  
+ * @param golden_hash_out Pointer to receive verified golden hash (32 bytes, if ready)
+ * @return true if write completed successfully, false otherwise
+ */
+bool crypt_get_golden_hash_write_status(bool *write_ready_out, bool *write_failed_out, uint8_t *golden_hash_out);
 
 #endif // CRYPT_H

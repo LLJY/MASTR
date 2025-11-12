@@ -1,113 +1,148 @@
-# MASTR: Mutual Attested Secure Token for Robotics
+# 🤖 MASTR Token - WiFi AP Integration
 
-MASTR is a security-focused project designed to establish a secure communication channel between a host system and a hardware token. It utilizes a three-phase protocol to ensure mutual attestation, secure channel establishment, and runtime integrity verification.
+**M**utual **A**ttested **S**ecure **T**oken for **R**obotics - now with WiFi (bruh).
 
-## Protocol Overview
+A tiny microcontroller trying to be both a secure token AND a WiFi router. Somehow it mostly works. 🤷
 
-The MASTR protocol is divided into three distinct phases:
+## ✨ What Works (For Real This Time)
 
-### Phase 1: Host-Token Pairing Process
+### ✅ WiFi Access Point
+- **SSID:** `MASTR-Token`
+- **Password:** `MastrToken123`
+- **IP:** `192.168.4.1`
+- Basically: your Pico becomes a WiFi hotspot. Crazy, I know.
 
-This initial, one-time pairing process establishes a trusted relationship between the host and the token.
+### ✅ HTTP API (The Good Parts)
 
-<img src="docs/Embedded-pairing-process.drawio (1).png" alt="Host-Token Pairing Process" width="500"/>
+#### `/api/ping`
+```bash
+curl http://192.168.4.1/api/ping
+# Bruh, it responds: {"message":"pong"}
+```
+Simple connectivity test. Does what it says on the tin.
 
-1.  **Key Generation:** Both the host and the token generate a new, persistent ECDSA keypair.
-2.  **Public Key Exchange:** The host and token exchange their public keys.
-3.  **Golden Hash:** The host generates a "golden hash" of its boot file and shares it with the token. This hash represents the known-good state of the host's software.
+#### `/api/status` (Actually Works!)
+```bash
+curl http://192.168.4.1/api/status
+# Returns: {"provisioned":true/false, "state":"0x40", "uptime_s":123}
+```
+Tells you if the token is provisioned yet. That's literally it. Works great.
 
-### Phase 2: Mutual Attestation & Secure Channel Establishment
+#### `/api/info` 
+**NOPE.** Crashes immediately. Disabled. Don't ask. 💀
 
-This phase is performed on every boot to establish a secure session.
+### 🌐 Web Dashboard
+- Open `http://192.168.4.1/` in your browser
+- See the status with a nice UI
+- Manual refresh only (auto-refresh made it angry)
 
-<img src="docs/Secure Channel Phase 2 embed.drawio.png" alt="Secure Channel Establishment" width="500"/>
+## 🏗️ How It's Organized
 
-1.  **Ephemeral Key Generation:** The host and token each generate an ephemeral ECDH keypair.
-2.  **Signed Key Exchange:** They exchange their ephemeral public keys, signing them with their persistent private keys from the pairing phase.
-3.  **Signature Verification:** Each party verifies the signature on the received ephemeral public key using the other's stored persistent public key.
-4.  **Secure Secret Derivation:** A shared secret is derived using the ECDH algorithm.
-5.  **Session Key Generation:** A KDF (Key Derivation Function) is used to generate an AES-128 session key from the shared secret.
-6.  **Channel Verification:** The channel is verified with an encrypted ping-pong exchange.
+```
+FreeRTOS Tasks (The Chaos):
+├── Serial (Priority 26) - Your USB connection
+├── Watchdog (Priority 27) - Judges everything  
+├── WiFi Background (Priority 25) - Talks to WiFi chip
+├── HTTP Server (Priority 5) - Handles web requests
+└── WiFi Init (Priority 5) - Starts the AP, then dips
+```
 
-### Phase 3: Integrity Verification & Runtime Guard
+Each task does its thing. Sometimes they play nice. Sometimes they don't.
 
-This phase ensures the host is running the correct software before allowing it to boot.
+## � The Problems (Why You're Here)
 
-<img src="docs/Integrity Attest Phase 3 embed.drawio.png" alt="Integrity Attestation" width="500"/>
+### Problem #1: Serial Breaks When WiFi Starts
+- **What happens:** You plug it in, start provisioning, then enable WiFi → EVERYTHING BREAKS
+- **Why:** WiFi initialization steals CPU time from serial task
+- **Current fix:** Wait 60 seconds before enabling WiFi so provisioning can finish
+- **Better fix:** TODO (we're working on it)
 
-1.  **Integrity Challenge:** The token sends a random nonce to the host.
-2.  **Hash Calculation:** The host calculates a hash of its current boot file.
-3.  **Signed Response:** The host signs the hash and the nonce with its persistent private key and sends the signature and hash to the token.
-4.  **Verification:** The token verifies the signature and compares the received hash with the stored "golden hash".
-5.  **Boot Signal:** If the verification is successful, the token sends a `T2H_BOOT_OK` signal to the host; otherwise, it sends `T2H_INTEGRITY_FAIL_HALT`.
+**TL;DR:** Do provisioning FIRST, THEN WiFi is okay.
 
-### Runtime Heartbeat
+### Problem #1.5: Garbage Output During Provisioning (The Real Issue)
+- **What you see:** Corrupted binary data mixed with partial debug messages
+- **Example:**
+```
+�YVOS����fCOO�f=p$
+*Sent T2H_ECDH_SHARE (host-initiated ECDH)
+J��y�����)ۘ%�EU
+```
+- **Why it happens:** Serial ISR receiving data while main protocol handler is processing
+- **Root cause:** No proper frame synchronization - data gets interleaved
+- **This means:** Protocol state machine is running during USB ISR, causing data corruption
+- **Impact:** ECDH exchange fails, provisioning breaks completely
 
-After a successful boot, the host sends periodic heartbeat messages to the token to maintain the session.
+**TL;DR:** Serial + WiFi task switching breaks the protocol. Need to disable WiFi polling DURING provisioning.
 
-### Shutdown Policy
+### Problem #2: macOS Hates Unplugging It
+- **What happens:** Unplug/replug a few times → macOS loses the device completely
+- **Why:** macOS USB driver gets confused (not our problem but we suffer)
+- **How to fix it:** Restart your Mac (bruh)
+- **Pro tip:** Just leave it plugged in. Works fine if you don't touch it.
 
-The system will shut down under the following conditions:
+**TL;DR:** Regular Pico 2 doesn't have this. WiFi chip adds drama.
 
-*   A protocol phase is not completed within 30 seconds.
-*   Either the host or token sends a "no-go" signal.
-*   The `T2H_BOOT_OK` signal is not received within 2 minutes of starting the attestation process.
-*   The heartbeat timeout occurs more than 3 times.
+### Problem #3: API Info Crashes
+- **What it tried to do:** Read temperature sensor
+- **What actually happened:** Pico went to another dimension 🌀
+- **Status:** Removed from API
+- **Can we bring it back?** Maybe, if we rewrite it
 
-## Building and Running the Project
+**TL;DR:** Just don't ask for it.
 
-### Prerequisites
+## 🔨 Build It
 
-*   Raspberry Pi Pico SDK
-*   CMake (version 3.13 or later)
-*   ARM GCC Compiler
+```bash
+cd build
+cmake ..
+make -j4
+picotool load pico_project_template.uf2 -u -f
+```
 
-### Build Instructions
+Standard procedure. Nothing fancy.
 
-1.  **Create a build directory:**
+## 🧪 Test It
 
-    ```bash
-    mkdir build
-    cd build
-    ```
+### Test via USB Serial
+```bash
+screen /dev/tty.usbmodem* 115200
+# See debug output, watch provisioning happen
+```
 
-2.  **Configure for your board:**
+### Test via WiFi
+Connect to `MASTR-Token` WiFi, then:
 
-    *   **For Raspberry Pi Pico (RP2040):**
+```bash
+# Quick check - is it alive?
+curl http://192.168.4.1/api/ping
 
-        ```bash
-        cmake .. -DPICO_BOARD=pico
-        ```
+# Check provisioning status
+curl http://192.168.4.1/api/status
 
-    *   **For Raspberry Pi Pico W (RP2040 with WiFi):**
+# Open web interface
+open http://192.168.4.1
+```
 
-        ```bash
-        cmake .. -DPICO_BOARD=picow
-        ```
+## � Stats
 
-    *   **For a generic RP2350 board:**
+- **Firmware Size:** 463 KB (still fits in 4 MB)
+- **RAM Used:** 138 KB (we got room)
+- **Bugs:** Still has some but we shipped it anyway
 
-        ```bash
-        cmake .. -DPICO_PLATFORM=rp2350
-        ```
+## 🎯 What's Next
 
-3.  **Build the project:**
+1. **FIX: Disable WiFi polling during provisioning** 
+   - Add `provisioning_active` flag to protocol_state
+   - Set to `true` at boot, `false` when reaching state 0x40
+   - Modify `wifi_background_task()` to skip `cyw43_arch_poll()` if provisioning_active
+   - This prevents task switching during ECDH key exchange
 
-    ```bash
-    make
-    ```
+2. **Test full flow:** Provision → then WiFi polling starts → both work together
 
-### Running
+3. **Maybe fix `/api/info`** → Temperature reading without crashing
 
-1.  Connect your Pico board to your computer while holding the `BOOTSEL` button.
-2.  Drag and drop the `mastr.uf2` file from the `build` directory onto the `RPI-RP2` mass storage device.
+4. **macOS USB drama** → Not much we can do, macOS issue
 
-## Testing
+---
 
-The project uses the Unity test framework. The tests are located in the `test` directory.
-
-### Running the Tests
-
-1.  Navigate to the build directory: `cd build`
-2.  Build the test runner: `make test_runner`
-3.  Run the tests: `ctest`
+Made on a Pico 2 W. Works most of the time. That's a win in my book. ✌️ 
