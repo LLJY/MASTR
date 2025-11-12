@@ -10,11 +10,12 @@
 #include "constants.h"
 #include "protocol.h"
 #include "crypto.h"
+#include "net/wifi_ap.h"
 
 // Add binary info
 bi_decl(bi_program_name("MASTR"));
 bi_decl(bi_program_description("Mutual Attested Secure Token for Robotics"));
-bi_decl(bi_program_version_string("0.0.2"));
+bi_decl(bi_program_version_string("0.0.3"));
 
 void print_board_info() {
     // All debug output goes through DEBUG_MSG protocol
@@ -150,6 +151,38 @@ int main() {
 
     // TODO check if the token has been provisioned, if not, do special magic to
     // start the web server in a special admin mode.
+
+    // WiFi initialization with LONG delay
+    // IMPORTANT: WiFi initialization is causing serial provisioning issues
+    // We start WiFi but NOT the background polling task
+    if (!wifi_ap_init()) {
+        print_dbg("WARNING: WiFi subsystem preparation failed\n");
+    } else {
+        // NOTE: WiFi background task DISABLED - it interferes with serial
+        // The HTTP server will still work, but may not handle incoming packets
+        // as quickly without the background polling task
+        /*
+        xTaskCreate(
+            wifi_background_task,
+            "WiFi-BG",
+            DEFAULT_STACK_SIZE,
+            NULL,
+            configMAX_PRIORITIES - 7,  // Priority 25
+            NULL
+        );
+        */
+        
+        // Create WiFi AP initialization task (priority 5: low priority)
+        // Waits 60 seconds to let scheduler stabilize and provisioning complete
+        xTaskCreate(
+            wifi_ap_init_task,
+            "WiFi-Init",
+            DEFAULT_STACK_SIZE,
+            NULL,
+            configMAX_PRIORITIES - 27,  // Priority 5
+            NULL
+        );
+    }
 
     // Start the FreeRTOS scheduler
     vTaskStartScheduler();
