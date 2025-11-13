@@ -216,6 +216,7 @@ void protocol_send_channel_verification_challenge();
 void protocol_invalidate_session(void);
 void protocol_trigger_reattestation(void);
 bool protocol_is_session_valid(void);
+void protocol_panic(const char* reason);
 void protocol_enter_halt_spam_state(void);
 
 // Watchdog task

@@ -137,11 +137,20 @@ bool protocol_is_session_valid(void) {
 
     return elapsed_ms < protocol_state.session_timeout_ms;
 }
+/**
+ * An idiomatic panic helper that tells us what happens.
+ * NOTE: WHEN IFDEBUG = 0 print_dbg WILL NOT OUTPUT ANYTHING.
+ */
+void protocol_panic(const char* reason){
+    print_dbg("SOMETHING WENT WRONG PANIC %s", reason);
+    protocol_enter_halt_spam_state();
+}
 
 /**
  * Enter permanent halt state and spam T2H_INTEGRITY_FAIL_HALT indefinitely.
  * This function never returns - it's a security measure for integrity failures.
  */
+ __attribute__((noreturn))
 void protocol_enter_halt_spam_state(void) {
     protocol_state.in_halt_state = true;
     protocol_state.current_state = 0xFF;  // Permanent halt state
