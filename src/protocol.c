@@ -44,21 +44,26 @@ void protocol_unprovision(){
 }
 
 // check if the protocol is provisioned, if not perform some function...
-bool protocol_check_provisioned(){
-    uint8_t host_pubkey[64];
+bool protocol_check_provisioned(void) {
     
-    // function returns false on error, so return false if it fails
-    if(crypto_ecdh_read_host_pubkey(host_pubkey) != 0)
+    // Force 4-byte alignment
+    static uint8_t host_pubkey[64] __attribute__((aligned(4)));
+    
+    if (crypto_ecdh_read_host_pubkey(host_pubkey) != true){
         return false;
-    
-    uint8_t golden_hash[32];
-    if(crypto_get_golden_hash(golden_hash) != 0)
+    }
+
+    // Force 4-byte alignment
+    static uint8_t golden_hash[32] __attribute__((aligned(4)));
+    if (crypto_get_golden_hash(golden_hash) != true){
         return false;
+
+    }
     
-    // check if both arrays are all zeros (should be if there is no data)
-    static const uint8_t zeros[64] = {0};
-    
-    if(memcmp(host_pubkey, zeros, sizeof(host_pubkey)) == 0 || memcmp(golden_hash, zeros, sizeof(golden_hash)) == 0)
+    static const uint8_t zeros[64] __attribute__((aligned(4))) = {0};
+
+    if (memcmp(host_pubkey, zeros, sizeof(host_pubkey)) == 0 || 
+        memcmp(golden_hash, zeros, sizeof(golden_hash)) == 0)
         return false;
     
     return true; // Provisioned

@@ -22,9 +22,6 @@ int http_register(const char *path, http_handler_fn handler) {
         if (routes[i].path == NULL) {
             routes[i].path = path;
             routes[i].handler = handler;
-#ifdef DEBUG
-            print_dbg("[HTTP] Registered route: %s\n", path);
-#endif
             return 0;
         }
     }

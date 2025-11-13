@@ -20,6 +20,8 @@ import threading
 from typing import Optional
 import argparse
 
+from host.crypto import NaiveCrypto
+
 from .serial_handler import SerialHandler
 from .protocol import MessageType, Frame
 from .logger import Logger, Colors
@@ -78,7 +80,7 @@ class HeartbeatDaemon:
         self.handler: Optional[SerialHandler] = None
         
         # Crypto handler for encryption (with TPM2 support)
-        self.crypto = TPM2Crypto()
+        self.crypto = NaiveCrypto()
         
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGTERM, self._signal_handler)

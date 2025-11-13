@@ -29,7 +29,7 @@
 #define API_DEBUG 0
 #endif
 #if API_DEBUG
-#define API_DBG(...) print_dbg(__VA_ARGS__)
+#define API_DBG(...) ////print_dbg(__VA_ARGS__)
 #else
 #define API_DBG(...) do { } while (0)
 #endif
@@ -356,12 +356,12 @@ static void token_info_handler(struct tcp_pcb *pcb, const char *request){
  * Returns: {"status":"accepted"} or {"error":"..."}
  */
 static void set_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
-    print_dbg("API: set_host_pubkey_handler called (non-blocking)\n");
+    ////print_dbg("API: set_host_pubkey_handler called (non-blocking)\n");
     
     // Find the request body (after double CRLF)
     const char *body_start = strstr(request, "\r\n\r\n");
     if (!body_start) {
-        print_dbg("API: missing request body\n");
+        ////print_dbg("API: missing request body\n");
         http_send_json(pcb, 400, "{\"error\":\"missing_body\"}");
         return;
     }
@@ -375,10 +375,10 @@ static void set_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
     
     // Create null-terminated string for the hex data
     size_t hex_len = body_end - body_start;
-    print_dbg("API: received hex data length: %zu\n", hex_len);
+    ////print_dbg("API: received hex data length: %zu\n", hex_len);
     
     if (hex_len != 128) {
-        print_dbg("API: invalid hex length, expected 128, got %zu\n", hex_len);
+        ////print_dbg("API: invalid hex length, expected 128, got %zu\n", hex_len);
         char error_msg[100];
         snprintf(error_msg, sizeof(error_msg), "{\"error\":\"invalid_length\",\"expected\":128,\"got\":%zu}", hex_len);
         http_send_json(pcb, 400, error_msg);
@@ -389,32 +389,32 @@ static void set_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
     for (size_t i = 0; i < 128; i++) {
         char c = body_start[i];
         if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
-            print_dbg("API: invalid hex character at position %zu: '%c'\n", i, c);
+            ////print_dbg("API: invalid hex character at position %zu: '%c'\n", i, c);
             http_send_json(pcb, 400, "{\"error\":\"invalid_hex_format\"}");
             return;
         }
     }
     
-    print_dbg("API: hex validation passed, creating null-terminated string\n");
+    ////print_dbg("API: hex validation passed, creating null-terminated string\n");
     
     // Create null-terminated string for the crypto function
     char hex_str[129];
     memcpy(hex_str, body_start, 128);
     hex_str[128] = '\0';
     
-    print_dbg("API: requesting non-blocking host pubkey write\n");
+    ////print_dbg("API: requesting non-blocking host pubkey write\n");
     
     // Use the new non-blocking crypto function
     bool write_ready, write_failed;
     bool accepted = crypto_request_host_pubkey_write(hex_str, &write_ready, &write_failed);
     
     if (!accepted) {
-        print_dbg("API: Host pubkey write request rejected (already pending)\n");
+        ////print_dbg("API: Host pubkey write request rejected (already pending)\n");
         http_send_json(pcb, 409, "{\"error\":\"write_pending\",\"retry_ms\":100}");
         return;
     }
     
-    print_dbg("API: Host pubkey write request accepted\n");
+    ////print_dbg("API: Host pubkey write request accepted\n");
     http_send_json(pcb, 202, "{\"status\":\"accepted\",\"message\":\"write_queued\"}");
 }
 
@@ -425,7 +425,7 @@ static void set_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
  */
 static void get_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
-    print_dbg("API: get_host_pubkey_handler called (non-blocking)\n");
+    ////print_dbg("API: get_host_pubkey_handler called (non-blocking)\n");
     
     const char *hex_pubkey = NULL;
     bool ready = false;
@@ -434,7 +434,7 @@ static void get_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
     crypto_get_cached_host_pubkey_hex(&hex_pubkey, &ready, &failed);
     
     if (failed) {
-        print_dbg("API: Host pubkey read failed\n");
+        ////print_dbg("API: Host pubkey read failed\n");
         http_send_json(pcb, 500, "{\"error\":\"read_failed\"}");
         return;
     }
@@ -444,13 +444,13 @@ static void get_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
         char body[180];
         int n = snprintf(body, sizeof(body), "{\"host_pubkey\":\"%s\",\"cached\":true}", hex_pubkey);
         (void)n;
-        print_dbg("API: Returning cached host pubkey\n");
+        ////print_dbg("API: Returning cached host pubkey\n");
         http_send_json(pcb, 200, body);
         return;
     }
     
     // Still reading
-    print_dbg("API: Host pubkey not ready yet\n");
+    ////print_dbg("API: Host pubkey not ready yet\n");
     http_send_json(pcb, 503, "{\"status\":\"reading\",\"retry_ms\":100}");
 }
 
@@ -461,7 +461,7 @@ static void get_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
  */
 static void host_pubkey_status_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
-    print_dbg("API: host_pubkey_status_handler called\n");
+    ////print_dbg("API: host_pubkey_status_handler called\n");
     
     bool write_ready = false;
     bool write_failed = false;
@@ -569,15 +569,21 @@ void api_register_routes(void) {
     http_register("/api/temp", temperature_handler);
     http_register("/api/cpu", cpu_handler);
     http_register("/api/claim", claim_handler);
-    // Provisioning token public key endpoint (single canonical path)
-    http_register("/api/provision/token_info", token_info_handler);
-    // Provisioning host public key endpoints (non-blocking versions)
-    http_register("/api/provision/host_pubkey", set_host_pubkey_handler);  // POST to set
-    http_register("/api/provision/host_pubkey/get", get_host_pubkey_handler);  // GET to read
-    http_register("/api/provision/host_pubkey/status", host_pubkey_status_handler);  // GET write status
-    // Provisioning golden hash endpoints (non-blocking versions)
-    http_register("/api/provision/golden_hash", set_golden_hash_handler);  // POST to set
-    http_register("/api/provision/golden_hash/status", golden_hash_status_handler);  // GET status
+    
+    print_dbg("protocol state is currently at: 0x%02X", g_protocol_state.current_state);
+    if(g_protocol_state.current_state == PROTOCOL_STATE_UNPROVISIONED){
+        // Provisioning token public key endpoint (single canonical path)
+        http_register("/api/provision/token_info", token_info_handler);
+        // Provisioning host public key endpoints (non-blocking versions)
+        http_register("/api/provision/host_pubkey", set_host_pubkey_handler);  // POST to set
+        http_register("/api/provision/host_pubkey/get", get_host_pubkey_handler);  // GET to read
+        http_register("/api/provision/host_pubkey/status", host_pubkey_status_handler);  // GET write status
+        // Provisioning golden hash endpoints (non-blocking versions)
+        http_register("/api/provision/golden_hash", set_golden_hash_handler);  // POST to set
+        http_register("/api/provision/golden_hash/status", golden_hash_status_handler);  // GET status
+    }else{
+        print_dbg("protocol has already been provisioned, skipping provisioning endpoints...");
+    }
     // Ask crypt layer to spawn prefetch task (low priority)
     crypto_spawn_pubkey_prefetch();
     
@@ -587,5 +593,5 @@ void api_register_routes(void) {
     // Start background task for golden hash operations (non-blocking)
     crypto_spawn_golden_hash_task();
     
-    print_dbg("API routes registered\n");
+    ////print_dbg("API routes registered\n");
 }

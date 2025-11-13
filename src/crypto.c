@@ -428,6 +428,7 @@ bool crypto_ecdh_read_host_pubkey(uint8_t* host_pubkey_out) {
         );
         
         if (status != ATCA_SUCCESS) {
+            print_dbg("ATECC error code: 0x%02X", status);
             return false;
         }
     }
