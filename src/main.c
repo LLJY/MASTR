@@ -181,14 +181,9 @@ int main() {
     ATCA_STATUS status = atcab_init(&cfg);
     if (status != ATCA_SUCCESS) {
         // we cannot continue, panic.
-        
+        protocol_panic("ATCA INIT FAILED!");
     }
     
-    // Initialize cryptographic subsystem
-    if (!crypto_init()) {
-        print_dbg("WARNING: Crypto subsystem init failed\n");
-    }
-        
     // Create the serial processing task
     // OPTIMIZED Priority hierarchy for stability (configMAX_PRIORITIES = 32):
     //   31 (MAX-1): FreeRTOS Timer Service Task
