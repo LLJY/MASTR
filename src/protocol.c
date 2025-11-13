@@ -1,6 +1,7 @@
 #include "protocol.h"
 #include "serial.h"
 #include "crypto.h"
+#include <stdint.h>
 #include <string.h>
 
 #ifndef UNIT_TEST
@@ -16,32 +17,48 @@
 protocol_state_t protocol_state = {0};
 
 // store golden hash and public key
-void protocol_provision(){
-    // do with placeholder data. generate this data using openssl, and sha256 and hardcode it in protocol.h for now...
-    // future implementations will set this using the web server.
+void protocol_provision(const uint8_t* p_golden_hash,
+    const uint8_t* p_pub_key,
+    const uint8_t golden_hash_len,
+    const uint8_t pub_key_len)
+{
+        
+    // sanity check the lengths
+    if(golden_hash_len != 32 || pub_key_len != 64)
+        return;
+    
+    crypto_set_golden_hash(p_golden_hash);
+    crypto_set_host_pubkey(p_pub_key);
 }
 
 // delete golden hash and public key
 void protocol_unprovision(){
-    // clear slot 8 on the atecc
+    static const uint8_t zero_golden_hash[32] = {0};
+    static const uint8_t zero_pub_key[64] = {0};
+    
+    protocol_provision(zero_golden_hash, zero_pub_key, sizeof(zero_golden_hash), sizeof(zero_pub_key));
+    return;
 }
 
 // check if the protocol is provisioned, if not perform some function...
 bool protocol_check_provisioned(){
-    // check if there is data in slot 8 (golden hash)
-    // check if there is data in slot 8 (perma pubkey of host)
-
-    // since slot 8 is the only general data slot with 416 bytes of storage
-
-    // why not store both together, in the same slot?
-
-    // layout of atecc slot 8:
-    // <H_Pubkey>|<golden_hash>
-
-    // receive both, verify, then store into protocol_state_t
-
-    // TODO: Implement actual provisioning check
-    return false; // Not provisioned yet
+    uint8_t host_pubkey[64];
+    
+    // function returns false on error, so return false if it fails
+    if(crypto_ecdh_read_host_pubkey(host_pubkey) != 0)
+        return false;
+    
+    uint8_t golden_hash[32];
+    if(crypto_get_golden_hash(golden_hash) != 0)
+        return false;
+    
+    // check if both arrays are all zeros (should be if there is no data)
+    static const uint8_t zeros[64] = {0};
+    
+    if(memcmp(host_pubkey, zeros, sizeof(host_pubkey)) == 0 || memcmp(golden_hash, zeros, sizeof(golden_hash)) == 0)
+        return false;
+    
+    return true; // Provisioned
 }
 // ============================================================================
 // Session Management Functions

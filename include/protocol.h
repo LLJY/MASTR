@@ -206,7 +206,7 @@ typedef struct{
 extern protocol_state_t protocol_state;
 
 // forward declarations
-void protocol_provision();
+void protocol_provision(const uint8_t* p_golden_hash, const uint8_t* p_pub_key, const uint8_t golden_hash_len, const uint8_t pub_key_len);
 void protocol_unprovision();
 bool protocol_check_provisioned();
 void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_t len);
