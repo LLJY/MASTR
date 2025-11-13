@@ -53,7 +53,11 @@ void tud_cdc_rx_cb(uint8_t itf) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     
     // Directly notify the serial task (faster and more efficient than semaphore)
-    if (serial_task_handle != NULL) {
+    // 
+    // don't even send or recieve anything if protocol state is unprovisioned (0x10) or halt (0xFF)
+    if (serial_task_handle != NULL &&
+        g_protocol_state.current_state != PROTOCOL_STATE_UNPROVISIONED &&
+        g_protocol_state.current_state != 0xFF) {
         vTaskNotifyGiveFromISR(serial_task_handle, &xHigherPriorityTaskWoken);
         portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
     }

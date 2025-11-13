@@ -3,6 +3,7 @@
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
+#define PROTOCOL_STATE_UNPROVISIONED    0x10
 // tell the compiler to ALWAYS pack the struct
 // so the memory layout is contiguous
 #pragma pack(push, 1)
@@ -208,7 +209,7 @@ extern protocol_state_t g_protocol_state;
 // forward declarations
 void protocol_provision(const uint8_t* p_golden_hash, const uint8_t* p_pub_key, const uint8_t golden_hash_len, const uint8_t pub_key_len);
 void protocol_unprovision();
-bool protocol_check_provisioned();
+bool protocol_check_provisioned(void);
 void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload, uint16_t len);
 void protocol_send_channel_verification_challenge();
 

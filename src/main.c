@@ -57,8 +57,6 @@ void serial_task(void *params) {
 void watchdog_task(void *params) {
     (void)params;  // Unused parameter
     
-    print_dbg("Enhanced watchdog task started\n");
-    
     // System health monitoring variables
     static uint32_t last_heap_check = 0;
     static uint32_t heap_warning_count = 0;
@@ -160,6 +158,78 @@ void watchdog_task(void *params) {
     }
 }
 
+/**
+ * @brief Main application initialization task
+ *
+ * This task runs once after the scheduler starts. It checks provisioning,
+ * initializes the protocol state, and starts the WiFi tasks.
+ */
+void app_init_task(void *params) {
+    TaskHandle_t serial_task_handle = (TaskHandle_t)params;
+    
+    print_dbg("App init task started.\n");
+
+    // --- All your logic is moved here ---
+    if (protocol_check_provisioned()) {
+        // Initialize protocol state
+        g_protocol_state.protocol_begin_timestamp = time_us_64();
+        g_protocol_state.current_state = H2T_ECDH_SHARE;  // Start at ECDH state (0x20)
+        
+        // Initialize session management
+        g_protocol_state.is_encrypted = false;       // Encryption disabled until first ECDH
+        g_protocol_state.session_valid = false;      // No valid session yet
+        g_protocol_state.session_start_timestamp = 0;
+        g_protocol_state.session_timeout_ms = 30000;   // Default 30 second timeout
+        g_protocol_state.last_watchdog_check = 0;
+        g_protocol_state.in_halt_state = false;      // Not in halt state
+
+        serial_init(serial_task_handle);
+
+    } else {
+        // Initialize serial subsystem with task handle for notifications
+        print_dbg("protocol is unprovisioned, disabling serial.\n");
+        g_protocol_state.current_state = PROTOCOL_STATE_UNPROVISIONED;
+    }
+
+    // --- WiFi initialization is also moved here ---
+    if (!wifi_ap_init()) {
+        print_dbg("WARNING: WiFi subsystem preparation failed\n");
+    } else {
+        // Enable WiFi background task
+        BaseType_t wifi_bg_result = xTaskCreate(
+            wifi_background_task,
+            "WiFi-BG",
+            DEFAULT_STACK_SIZE + 512,
+            NULL,
+            24,
+            NULL
+        );
+        
+        if (wifi_bg_result != pdPASS) {
+            print_dbg("ERROR: Failed to create WiFi background task - AP may be unstable\n");
+        }
+        
+        // Create WiFi AP initialization task
+        BaseType_t wifi_init_result = xTaskCreate(
+            wifi_ap_init_task,
+            "WiFi-Init",
+            DEFAULT_STACK_SIZE + 256,
+            NULL,
+            10,
+            NULL
+        );
+        
+        if (wifi_init_result != pdPASS) {
+            print_dbg("ERROR: Failed to create WiFi init task - AP will not start\n");
+        }
+    }
+
+    print_dbg("App init task finished. Deleting self.\n");
+    
+    // This task is done, so we delete it to free resources
+    vTaskDelete(NULL);
+}
+
 // Idle monitor removed (tick-based idle accounting deprecated)
 
 int main() {
@@ -230,62 +300,19 @@ int main() {
         // System can continue but without monitoring - proceed with caution
     }
     
-    // Initialize serial subsystem with task handle for notifications
-    serial_init(serial_task_handle);
-
-    // Initialize protocol state
-    g_protocol_state.protocol_begin_timestamp = time_us_64();
-    g_protocol_state.current_state = H2T_ECDH_SHARE;  // Start at ECDH state (0x20)
+    BaseType_t init_result = xTaskCreate(
+            app_init_task,
+            "AppInit",
+            DEFAULT_STACK_SIZE + 512, // Give it a decent stack for init
+            (void*)serial_task_handle,  // Pass serial handle as parameter
+            20,                         // Priority 20
+            NULL
+        );
     
-    // Initialize session management
-    g_protocol_state.is_encrypted = false;         // Encryption disabled until first ECDH
-    g_protocol_state.session_valid = false;        // No valid session yet
-    g_protocol_state.session_start_timestamp = 0;
-    g_protocol_state.session_timeout_ms = 30000;   // Default 30 second timeout
-    g_protocol_state.last_watchdog_check = 0;
-    g_protocol_state.in_halt_state = false;        // Not in halt state
-
-    // TODO check if the token has been provisioned, if not, do special magic to
-    // start the web server in a special admin mode.
-
-    // WiFi initialization with LONG delay
-    // IMPORTANT: WiFi initialization is causing serial provisioning issues
-    // We start WiFi but NOT the background polling task
-    if (!wifi_ap_init()) {
-        print_dbg("WARNING: WiFi subsystem preparation failed\n");
-    } else {
-        // Enable WiFi background task (required for stable lwIP & driver event processing)
-        // Higher priority than before for better WiFi stability
-        BaseType_t wifi_bg_result = xTaskCreate(
-            wifi_background_task,
-            "WiFi-BG",
-            DEFAULT_STACK_SIZE + 512,       // Larger stack for lwIP stability
-            NULL,
-            24,                             // Priority 24 (high, for driver stability)
-            NULL
-        );
-        
-        if (wifi_bg_result != pdPASS) {
-            print_dbg("ERROR: Failed to create WiFi background task - AP may be unstable\n");
-        }
-        
-        // Create WiFi AP initialization task (lower priority, deferred startup)
-        // Waits for system to stabilize before starting AP
-        BaseType_t wifi_init_result = xTaskCreate(
-            wifi_ap_init_task,
-            "WiFi-Init",
-            DEFAULT_STACK_SIZE + 256,       // Extra stack for initialization
-            NULL,
-            10,                             // Priority 10 (medium-low, deferred)
-            NULL
-        );
-        
-        if (wifi_init_result != pdPASS) {
-            print_dbg("ERROR: Failed to create WiFi init task - AP will not start\n");
-        }
+    if (init_result != pdPASS) {
+        print_dbg("FATAL: Failed to create App Init task\n");
+        while (1) { tight_loop_contents(); }
     }
-
-    // Idle monitor task removed
 
     // Start the FreeRTOS scheduler
     vTaskStartScheduler();
