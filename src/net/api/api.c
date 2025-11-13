@@ -560,6 +560,18 @@ static void golden_hash_status_handler(struct tcp_pcb *pcb, const char *request)
     }
 }
 
+#ifdef DEBUG
+static void reset_api_handler(struct tcp_pcb *pcb, const char *request) {
+    (void)request; // Unused parameter
+        
+    protocol_unprovision();
+    
+    char response[150];
+    snprintf(response, sizeof(response), "{\"status\":\"success\",");
+    http_send_json(pcb, 200, response);
+}
+#endif
+
 void api_register_routes(void) {
     http_register("/api/ping", ping_handler);
     http_register("/api/health", health_handler);
@@ -584,6 +596,20 @@ void api_register_routes(void) {
     }else{
         print_dbg("protocol has already been provisioned, skipping provisioning endpoints...");
     }
+    #ifdef DEBUG
+    if(g_protocol_state.current_state != PROTOCOL_STATE_UNPROVISIONED){
+        // when in debug, register endpoints anyway.
+        http_register("/api/provision/token_info", token_info_handler);
+        http_register("/api/provision/host_pubkey", set_host_pubkey_handler);  // POST to set
+        http_register("/api/provision/host_pubkey/get", get_host_pubkey_handler);  // GET to read
+        http_register("/api/provision/host_pubkey/status", host_pubkey_status_handler);  // GET write status
+        http_register("/api/provision/golden_hash", set_golden_hash_handler);  // POST to set
+        http_register("/api/provision/golden_hash/status", golden_hash_status_handler);  // GET status
+        
+        // also register an additional viewpoint for token reset.
+        http_register("/api/provision/reset", reset_api_handler); 
+    }
+    #endif
     // Ask crypt layer to spawn prefetch task (low priority)
     crypto_spawn_pubkey_prefetch();
     

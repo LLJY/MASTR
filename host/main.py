@@ -82,16 +82,18 @@ class MASTRHost:
         exit_code = host.run()
     """
     
-    def __init__(self, port: str, baudrate: int = 115200, crypto: Optional[CryptoInterface] = None, verbose: bool = False, auto_provision: bool = False, skip_key_storage: bool = False, debug_handover: bool = False):
+    def __init__(self, port: str, baudrate: int = 115200, crypto: Optional[CryptoInterface] = None, verbose: bool = False, auto_provision: bool = False, debug_override_provision: bool = False, golden_hash_file: Optional[str] = None, skip_key_storage: bool = False, debug_handover: bool = False):
         """
         Initialize the MASTR host.
-        
+
         Args:
             port: Serial port to connect to
             baudrate: Serial baud rate
             crypto: Crypto implementation (defaults to NaiveCrypto)
             verbose: Enable verbose output
-            auto_provision: Automatically provision keys and golden hash if True
+            auto_provision: [DEBUG] Provision via HTTP API if True
+            debug_override_provision: [DEBUG] Use serial debug protocol instead of API
+            golden_hash_file: [DEBUG] File to hash for golden hash (default: SHA256(b"h\0"))
             skip_key_storage: Skip storing session key for runtime (testing only)
             debug_handover: Simulate initramfs->systemd handover for testing
         """
@@ -99,8 +101,14 @@ class MASTRHost:
         self.baudrate = baudrate
         self.verbose = verbose
         self.auto_provision = auto_provision
+        self.debug_override_provision = debug_override_provision
+        self.golden_hash_file = golden_hash_file
         self.skip_key_storage = skip_key_storage
         self.debug_handover = debug_handover
+
+        # Validate flags
+        if self.auto_provision and self.debug_override_provision:
+            raise ValueError("Cannot use both --provision and --debug-override-provision")
         self.frame_count = 0
         self.error_count = 0
         
@@ -302,21 +310,42 @@ class MASTRHost:
     
     def _load_or_generate_keys(self) -> bool:
         """Load permanent keys or generate them if they don't exist"""
-        # If auto-provision flag is set, always regenerate and re-provision
-        if self.auto_provision:
-            Logger.info("Provision mode: Regenerating keypair...")
+
+        # ====================================================================
+        # DEBUG PROVISIONING METHODS (REMOVE IN PRODUCTION)
+        # These methods are for testing only. Production uses HTML UI.
+        # ====================================================================
+
+        if self.debug_override_provision:
+            # DEBUG MODE 1: Serial debug protocol (legacy)
+            Logger.warning("⚠️  DEBUG MODE: Using serial debug protocol")
             if self.crypto.generate_permanent_keypair():
                 host_pubkey = self.crypto.get_host_permanent_pubkey()
                 Logger.success("Generated new host keypair")
                 if host_pubkey:
                     Logger.substep(f"Host pubkey: {host_pubkey.hex()}")
-                # Auto-provision: exchange keys with token
-                return self._auto_provision_token_key()
+                return self._auto_provision_token_key_debug()
             else:
                 Logger.error("Failed to generate keys")
                 return False
-        
-        # Normal mode: try to load existing keys
+
+        if self.auto_provision:
+            # DEBUG MODE 2: HTTP API (for testing API without browser)
+            Logger.warning("⚠️  DEBUG MODE: Using HTTP API provisioning")
+            if self.crypto.generate_permanent_keypair():
+                host_pubkey = self.crypto.get_host_permanent_pubkey()
+                Logger.success("Generated new host keypair")
+                if host_pubkey:
+                    Logger.substep(f"Host pubkey: {host_pubkey.hex()}")
+                return self._auto_provision_token_key_api()
+            else:
+                Logger.error("Failed to generate keys")
+                return False
+
+        # ====================================================================
+        # NORMAL OPERATION: Load existing keys
+        # ====================================================================
+
         if self.crypto.load_permanent_keys():
             host_pubkey = self.crypto.get_host_permanent_pubkey()
             Logger.success("Loaded permanent keys")
@@ -325,13 +354,20 @@ class MASTRHost:
             return True
         else:
             Logger.warning("Permanent keys not found!")
-            print(f"Please run with --provision flag to generate and provision keys:")
-            print(f"  python -m host.main {self.port} --provision")
+            Logger.info("Production: Use HTML UI to provision token")
+            Logger.info("Debug options:")
+            Logger.info("  --provision              (HTTP API provisioning)")
+            Logger.info("  --debug-override-provision (Serial debug protocol)")
             return False
     
-    def _auto_provision_token_key(self) -> bool:
-        """Request token public key automatically"""
-        Logger.section("Auto-Provisioning Token Key")
+    def _auto_provision_token_key_debug(self) -> bool:
+        """
+        Request token public key using DEBUG SERIAL PROTOCOL (legacy).
+
+        NOTE: This is DEBUG-only. Production uses HTML UI.
+              REMOVE when main.py becomes production script.
+        """
+        Logger.section("Auto-Provisioning Token Key (DEBUG SERIAL MODE)")
         
         # Step 1: Send host pubkey to token
         Logger.step(1, "Sending host public key to token...")
@@ -377,30 +413,182 @@ class MASTRHost:
         except Exception as e:
             Logger.error(f"Failed to save token pubkey: {e}")
             return False
-    
-    def _provision_golden_hash(self) -> bool:
-        """Compute and provision default golden hash to token"""
-        import hashlib
-        
-        Logger.section("Provisioning Golden Hash")
-        
-        # Step 1: Compute golden hash from default test data
-        Logger.step(1, "Computing golden hash from default test data (2 bytes: 'h' + null)...")
-        test_data = b"h\0"  # 2 bytes: 0x68 0x00
-        golden_hash = hashlib.sha256(test_data).digest()
-        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Test data: {test_data.hex()} ({len(test_data)} bytes)")
-        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Golden hash: {golden_hash.hex()}")
-        
-        # Save golden hash to disk for future testing
+
+    def _auto_provision_token_key_api(self) -> bool:
+        """
+        Provision token using HTTP API endpoints.
+
+        NOTE: This is for DEBUG/TESTING only. Production uses HTML UI.
+              REMOVE when main.py becomes production script.
+        """
+        from .api_client import MastrApiClient
+
+        Logger.section("Auto-Provisioning Token Key (HTTP API MODE)")
+        Logger.warning("This is a DEBUG feature. Production uses HTML UI.")
+
+        # Step 0: Initialize API client
+        Logger.step(0, "Connecting to token API (http://192.168.4.1)...")
+        api = MastrApiClient(base_url="http://192.168.4.1", timeout=10, max_retries=3)
+
+        # Check if provisioning endpoints are available
+        if not api.check_provisioning_available():
+            Logger.error("❌ Provisioning endpoints not available (404)")
+            Logger.warning("Token is already provisioned!")
+            Logger.info("\nOptions:")
+            Logger.info("  1. Use existing keys (remove --provision flag)")
+            Logger.info("  2. Factory reset the token hardware")
+            Logger.info("  3. Try --debug-override-provision (serial debug mode)")
+            return False
+
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} API reachable, provisioning available")
+
+        # Step 1: Get token public key
+        Logger.step(1, "Requesting token public key...")
+        token_info = api.get_token_info()
+        if not token_info:
+            Logger.error("Failed to get token info")
+            return False
+
+        # Check for both possible field names (token_pubkey or token_pubkey_hex)
+        token_pubkey_hex = token_info.get("token_pubkey_hex") or token_info.get("token_pubkey")
+        if not token_pubkey_hex:
+            Logger.error("Token info missing 'token_pubkey' or 'token_pubkey_hex' field")
+            Logger.substep(f"Received: {token_info}")
+            return False
+
+        # Validate and convert hex to bytes
+        try:
+            token_pubkey_bytes = bytes.fromhex(token_pubkey_hex)
+            if len(token_pubkey_bytes) != 64:
+                Logger.error(f"Invalid token pubkey length: {len(token_pubkey_bytes)} (expected 64)")
+                return False
+            Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Token pubkey: {token_pubkey_hex[:32]}...")
+        except ValueError as e:
+            Logger.error(f"Invalid hex format: {e}")
+            return False
+
+        # Step 2: Save token pubkey to file
+        Logger.step(2, "Saving token public key...")
+        try:
+            with open('token_permanent_pubkey.bin', 'wb') as f:
+                f.write(token_pubkey_bytes)
+            Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Saved to token_permanent_pubkey.bin")
+        except Exception as e:
+            Logger.error(f"Failed to save token pubkey: {e}")
+            return False
+
+        # Step 3: Send host public key
+        Logger.step(3, "Sending host public key to token...")
+        host_pubkey = self.crypto.get_host_permanent_pubkey()
+        if not host_pubkey:
+            Logger.error("Host pubkey not available")
+            return False
+
+        host_pubkey_hex = host_pubkey.hex()
+        if not api.post_host_pubkey(host_pubkey_hex):
+            return False
+
+        # Step 4: Wait for host pubkey write to complete
+        Logger.step(4, "Waiting for host pubkey write to ATECC608A...")
+        if not api.poll_status(api.get_host_pubkey_status, max_polls=20, delay=0.5):
+            Logger.error("Host pubkey write failed or timed out")
+            return False
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Host pubkey written to Slot 8")
+
+        # Step 5: Compute golden hash
+        Logger.step(5, "Computing golden hash...")
+        golden_hash = self._compute_golden_hash()
+        if golden_hash is None:
+            return False
+
+        golden_hash_hex = golden_hash.hex()
+
+        # Save golden hash to disk
         try:
             with open('golden_hash.bin', 'wb') as f:
                 f.write(golden_hash)
             Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Saved to golden_hash.bin")
         except Exception as e:
             Logger.substep(f"{Colors.YELLOW}[WARNING]{Colors.RESET} Could not save golden hash: {e}")
-        
-        # Step 2: Send golden hash to token
-        Logger.step(2, "Sending golden hash to token...")
+
+        # Step 6: Send golden hash to token
+        Logger.step(6, "Sending golden hash to token...")
+        if not api.post_golden_hash(golden_hash_hex):
+            return False
+
+        # Step 7: Wait for golden hash write to complete
+        Logger.step(7, "Waiting for golden hash write to ATECC608A Slot 8 Block 2...")
+        if not api.poll_status(api.get_golden_hash_status, max_polls=20, delay=0.5):
+            Logger.error("Golden hash write failed or timed out")
+            return False
+        Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Golden hash written")
+
+        # Step 8: Reload keys with token pubkey
+        Logger.step(8, "Reloading keys...")
+        if not self.crypto.load_permanent_keys():
+            Logger.error("Failed to reload keys")
+            return False
+
+        Logger.success("✅ Token provisioned successfully via HTTP API!")
+        Logger.info("You can now unplug the token (confirmation is implicit)")
+        return True
+
+    def _compute_golden_hash(self) -> Optional[bytes]:
+        """
+        Compute golden hash based on --golden-hash-file flag.
+
+        Returns:
+            32-byte SHA256 hash, or None on error
+        """
+        import hashlib
+
+        if self.golden_hash_file:
+            # Custom file hash
+            Logger.substep(f"Computing hash from file: {self.golden_hash_file}")
+            try:
+                with open(self.golden_hash_file, 'rb') as f:
+                    file_data = f.read()
+                golden_hash = hashlib.sha256(file_data).digest()
+                Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} File size: {len(file_data)} bytes")
+                Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Golden hash: {golden_hash.hex()}")
+                return golden_hash
+            except Exception as e:
+                Logger.error(f"Failed to read golden hash file: {e}")
+                return None
+        else:
+            # Default test data
+            Logger.substep("Using default test data (2 bytes: 'h' + null)")
+            test_data = b"h\0"  # 0x68 0x00
+            golden_hash = hashlib.sha256(test_data).digest()
+            Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Test data: {test_data.hex()}")
+            Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Golden hash: {golden_hash.hex()}")
+            return golden_hash
+
+    def _provision_golden_hash(self) -> bool:
+        """
+        Compute and provision golden hash to token (DEBUG SERIAL MODE).
+
+        NOTE: This is DEBUG-only. Production uses HTML UI.
+              REMOVE when main.py becomes production script.
+        """
+        Logger.section("Provisioning Golden Hash")
+
+        # Step 1: Compute golden hash
+        Logger.step(1, "Computing golden hash...")
+        golden_hash = self._compute_golden_hash()
+        if golden_hash is None:
+            return False
+
+        # Save to disk
+        try:
+            with open('golden_hash.bin', 'wb') as f:
+                f.write(golden_hash)
+            Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Saved to golden_hash.bin")
+        except Exception as e:
+            Logger.substep(f"{Colors.YELLOW}[WARNING]{Colors.RESET} Could not save: {e}")
+
+        # Step 2: Send via serial
+        Logger.step(2, "Sending golden hash to token (serial)...")
         if not self.handler.send_frame(MessageType.H2T_DEBUG_SET_GOLDEN_HASH.value, golden_hash):
             Logger.substep(f"{Colors.RED}✗{Colors.RESET} Failed to send golden hash")
             return False
@@ -957,7 +1145,18 @@ def main():
     parser.add_argument(
         '--provision',
         action='store_true',
-        help='Automatically provision token keys and golden hash'
+        help='[DEBUG] Provision token via HTTP API endpoints'
+    )
+    parser.add_argument(
+        '--debug-override-provision',
+        action='store_true',
+        help='[DEBUG] Override API provisioning and use serial debug protocol'
+    )
+    parser.add_argument(
+        '--golden-hash-file',
+        type=str,
+        metavar='PATH',
+        help='[DEBUG] File to hash for golden hash (default: SHA256(b"h\\0"))'
     )
     parser.add_argument(
         '--skip-key-storage',
@@ -1006,6 +1205,8 @@ def main():
         crypto=crypto,
         verbose=args.verbose,
         auto_provision=args.provision,
+        debug_override_provision=args.debug_override_provision,
+        golden_hash_file=args.golden_hash_file,
         skip_key_storage=args.skip_key_storage,
         debug_handover=args.debug_handover
     )
