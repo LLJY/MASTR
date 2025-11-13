@@ -12,9 +12,9 @@ void setUp(void) {
     mock_time_reset();
     
     // Reset protocol state
-    memset(&protocol_state, 0, sizeof(protocol_state));
-    protocol_state.current_state = 0x20;  // Start at ECDH state
-    protocol_state.session_timeout_ms = 30000;
+    memset(&g_protocol_state, 0, sizeof(g_protocol_state));
+    g_protocol_state.current_state = 0x20;  // Start at ECDH state
+    g_protocol_state.session_timeout_ms = 30000;
 }
 
 // Common tearDown for all tests

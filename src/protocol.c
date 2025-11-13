@@ -22,6 +22,7 @@ void protocol_provision(const uint8_t* p_golden_hash,
     const uint8_t golden_hash_len,
     const uint8_t pub_key_len)
 {
+    #ifndef UNIT_TEST
         
     // sanity check the lengths
     if(golden_hash_len != 32 || pub_key_len != 64)
@@ -29,6 +30,8 @@ void protocol_provision(const uint8_t* p_golden_hash,
     
     crypto_set_golden_hash(p_golden_hash);
     crypto_set_host_pubkey(p_pub_key);
+    
+    #endif
 }
 
 // delete golden hash and public key
@@ -150,7 +153,9 @@ void protocol_panic(const char* reason){
  * Enter permanent halt state and spam T2H_INTEGRITY_FAIL_HALT indefinitely.
  * This function never returns - it's a security measure for integrity failures.
  */
+ #ifndef UNIT_TEST
  __attribute__((noreturn))
+ #endif
 void protocol_enter_halt_spam_state(void) {
     g_protocol_state.in_halt_state = true;
     g_protocol_state.current_state = 0xFF;  // Permanent halt state
@@ -297,7 +302,7 @@ void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload
                 protocol_send_channel_verification_challenge();
                 #else
                 // UNIT_TEST path: Set encryption flag
-                protocol_state.is_encrypted = true;
+                g_protocol_state.is_encrypted = true;
                 #endif
             }
             break;
@@ -327,7 +332,7 @@ void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload
                 send_message(T2H_INTEGRITY_CHALLENGE, (uint8_t*)&g_protocol_state.integrity_challenge_nonce, 4);
                 #else
                 // In unit tests, just set a deterministic nonce
-                protocol_state.integrity_challenge_nonce = 0x12345678;
+                g_protocol_state.integrity_challenge_nonce = 0x12345678;
                 #endif
             }
             break;

@@ -83,8 +83,8 @@ void serial_init(TaskHandle_t task_handle) {
 
 // Read data from USB CDC into ring buffer
 static inline uint16_t rx_buffer_available() {
-    return (g_rx_write_idx >= g_rx_read_idx) ? 
-           (g_rx_write_idx - g_rx_read_idx) : 
+    return (g_rx_write_idx >= g_rx_read_idx) ?
+           (g_rx_write_idx - g_rx_read_idx) :
            (RX_BUFFER_SIZE - g_rx_read_idx + g_rx_write_idx);
 }
 
@@ -120,10 +120,10 @@ static void rx_buffer_fill() {
 // Test helper to inject data into rx_buffer for unit tests
 void test_inject_rx_data(const uint8_t* data, uint16_t len) {
     for (uint16_t i = 0; i < len; i++) {
-        uint16_t next_write = (rx_write_idx + 1) % RX_BUFFER_SIZE;
-        if (next_write != rx_read_idx) {
-            rx_buffer[rx_write_idx] = data[i];
-            rx_write_idx = next_write;
+        uint16_t next_write = (g_rx_write_idx + 1) % RX_BUFFER_SIZE;
+        if (next_write != g_rx_read_idx) {
+            g_rx_buffer[g_rx_write_idx] = data[i];
+            g_rx_write_idx = next_write;
         }
     }
 }

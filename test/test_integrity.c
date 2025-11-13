@@ -23,8 +23,8 @@ void test_integrity_hash_comparison_exact_match(void) {
     mock_crypto_set_golden_hash(golden_hash);
     mock_crypto_set_integrity_result(true);
     
-    protocol_state.current_state = 0x30;
-    protocol_state.integrity_challenge_nonce = 0x12345678;
+    g_protocol_state.current_state = 0x30;
+    g_protocol_state.integrity_challenge_nonce = 0x12345678;
     
     // Act: Process integrity response with matching hash
     uint8_t payload[96];
@@ -34,7 +34,7 @@ void test_integrity_hash_comparison_exact_match(void) {
     protocol_handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
     
     // Assert: Verify integrity passed and state advanced
-    TEST_ASSERT_EQUAL_UINT8(0x32, protocol_state.current_state);
+    TEST_ASSERT_EQUAL_UINT8(0x32, g_protocol_state.current_state);
 }
 
 void test_integrity_detects_single_bit_tampering(void) {
@@ -48,7 +48,7 @@ void test_integrity_detects_single_bit_tampering(void) {
     mock_crypto_set_golden_hash(golden_hash);
     mock_crypto_set_integrity_result(false);
     
-    protocol_state.current_state = 0x30;
+    g_protocol_state.current_state = 0x30;
     
     // Act: Process integrity response with tampered hash
     uint8_t payload[96];
@@ -58,7 +58,7 @@ void test_integrity_detects_single_bit_tampering(void) {
     protocol_handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
     
     // Assert: Verify system entered halt state due to tampering
-    TEST_ASSERT_EQUAL_UINT8(0xFF, protocol_state.current_state);
+    TEST_ASSERT_EQUAL_UINT8(0xFF, g_protocol_state.current_state);
 }
 
 void test_integrity_detects_complete_hash_mismatch(void) {
@@ -71,7 +71,7 @@ void test_integrity_detects_complete_hash_mismatch(void) {
     mock_crypto_set_golden_hash(golden_hash);
     mock_crypto_set_integrity_result(false);
     
-    protocol_state.current_state = 0x30;
+    g_protocol_state.current_state = 0x30;
     
     // Act: Process integrity response with completely wrong hash
     uint8_t payload[96];
@@ -81,7 +81,7 @@ void test_integrity_detects_complete_hash_mismatch(void) {
     protocol_handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
     
     // Assert: Verify system entered halt state due to tampering
-    TEST_ASSERT_EQUAL_UINT8(0xFF, protocol_state.current_state);
+    TEST_ASSERT_EQUAL_UINT8(0xFF, g_protocol_state.current_state);
 }
 
 void test_integrity_validates_with_different_nonce(void) {
@@ -94,8 +94,8 @@ void test_integrity_validates_with_different_nonce(void) {
     mock_crypto_set_golden_hash(golden_hash);
     mock_crypto_set_integrity_result(true);
     
-    protocol_state.current_state = 0x30;
-    protocol_state.integrity_challenge_nonce = 0xDEADBEEF;
+    g_protocol_state.current_state = 0x30;
+    g_protocol_state.integrity_challenge_nonce = 0xDEADBEEF;
     
     // Act: Process integrity response with different nonce
     uint8_t payload[96];
@@ -105,7 +105,7 @@ void test_integrity_validates_with_different_nonce(void) {
     protocol_handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
     
     // Assert: Verify integrity still passes (nonce doesn't affect hash comparison)
-    TEST_ASSERT_EQUAL_UINT8(0x32, protocol_state.current_state);
+    TEST_ASSERT_EQUAL_UINT8(0x32, g_protocol_state.current_state);
 }
 
 void test_integrity_zero_hash_detection(void) {
@@ -118,7 +118,7 @@ void test_integrity_zero_hash_detection(void) {
     mock_crypto_set_golden_hash(golden_hash);
     mock_crypto_set_integrity_result(false);
     
-    protocol_state.current_state = 0x30;
+    g_protocol_state.current_state = 0x30;
     
     // Act: Process integrity response with zero hash
     uint8_t payload[96];
@@ -128,7 +128,7 @@ void test_integrity_zero_hash_detection(void) {
     protocol_handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
     
     // Assert: Verify system entered halt state (zero hash rejected)
-    TEST_ASSERT_EQUAL_UINT8(0xFF, protocol_state.current_state);
+    TEST_ASSERT_EQUAL_UINT8(0xFF, g_protocol_state.current_state);
 }
 
 void test_integrity_all_ones_hash_detection(void) {
@@ -141,7 +141,7 @@ void test_integrity_all_ones_hash_detection(void) {
     mock_crypto_set_golden_hash(golden_hash);
     mock_crypto_set_integrity_result(false);
     
-    protocol_state.current_state = 0x30;
+    g_protocol_state.current_state = 0x30;
     
     // Act: Process integrity response with all-ones hash
     uint8_t payload[96];
@@ -151,5 +151,5 @@ void test_integrity_all_ones_hash_detection(void) {
     protocol_handle_validated_message(H2T_INTEGRITY_RESPONSE, payload, 96);
     
     // Assert: Verify system entered halt state (all-ones hash rejected)
-    TEST_ASSERT_EQUAL_UINT8(0xFF, protocol_state.current_state);
+    TEST_ASSERT_EQUAL_UINT8(0xFF, g_protocol_state.current_state);
 }

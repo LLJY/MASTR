@@ -364,4 +364,6 @@ bool crypto_spawn_golden_hash_task_with_data(const uint8_t* golden_hash);
  */
 bool crypto_get_golden_hash_write_status(bool *write_ready_out, bool *write_failed_out, uint8_t *golden_hash_out);
 
+bool crypto_set_host_pubkey(const uint8_t* host_pubkey);
+
 #endif // CRYPT_H
