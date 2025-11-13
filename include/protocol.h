@@ -3,6 +3,7 @@
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
+#define PROTOCOL_STATE_UNPROVISIONED    0x10
 // tell the compiler to ALWAYS pack the struct
 // so the memory layout is contiguous
 #pragma pack(push, 1)

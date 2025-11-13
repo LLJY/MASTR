@@ -229,21 +229,25 @@ int main() {
         print_dbg("FATAL: Failed to create Watchdog task - system stability compromised\n");
         // System can continue but without monitoring - proceed with caution
     }
-    
-    // Initialize serial subsystem with task handle for notifications
     serial_init(serial_task_handle);
 
-    // Initialize protocol state
-    g_protocol_state.protocol_begin_timestamp = time_us_64();
-    g_protocol_state.current_state = H2T_ECDH_SHARE;  // Start at ECDH state (0x20)
-    
-    // Initialize session management
-    g_protocol_state.is_encrypted = false;         // Encryption disabled until first ECDH
-    g_protocol_state.session_valid = false;        // No valid session yet
-    g_protocol_state.session_start_timestamp = 0;
-    g_protocol_state.session_timeout_ms = 30000;   // Default 30 second timeout
-    g_protocol_state.last_watchdog_check = 0;
-    g_protocol_state.in_halt_state = false;        // Not in halt state
+    if(true){
+        // Initialize protocol state
+        g_protocol_state.protocol_begin_timestamp = time_us_64();
+        g_protocol_state.current_state = H2T_ECDH_SHARE;  // Start at ECDH state (0x20)
+        
+        // Initialize session management
+        g_protocol_state.is_encrypted = false;         // Encryption disabled until first ECDH
+        g_protocol_state.session_valid = false;        // No valid session yet
+        g_protocol_state.session_start_timestamp = 0;
+        g_protocol_state.session_timeout_ms = 30000;   // Default 30 second timeout
+        g_protocol_state.last_watchdog_check = 0;
+        g_protocol_state.in_halt_state = false;        // Not in halt state
+    } else {
+        // Initialize serial subsystem with task handle for notifications
+        print_dbg("protocol is unprovisioned, disabling serial.");
+        g_protocol_state.current_state = PROTOCOL_STATE_UNPROVISIONED;
+    }
 
     // TODO check if the token has been provisioned, if not, do special magic to
     // start the web server in a special admin mode.
