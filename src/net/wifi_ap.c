@@ -1,6 +1,6 @@
 #include "wifi_ap.h"
 #include "serial.h"
-#include "ap/ap_manager.h"
+#include "ap_manager.h"
 #include <string.h>
 #include <stdlib.h>
 

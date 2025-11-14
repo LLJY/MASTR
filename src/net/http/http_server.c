@@ -9,11 +9,7 @@
 #include <stdbool.h>
 #include "serial.h"
 
-// Forward declarations for connection tracking
-static void http_connection_opened(void);
-static void http_connection_closed(void);
 
-#define MAX_ROUTES 16  // Increased to accommodate new provisioning endpoints
 struct route_entry { const char *path; http_handler_fn handler; };
 static struct route_entry routes[MAX_ROUTES];
 
@@ -30,13 +26,6 @@ int http_register(const char *path, http_handler_fn handler) {
 #endif
     return -1;
 }
-
-typedef struct {
-    char request[1024];
-    int request_len;
-    bool in_use;
-    bool close_when_sent;
-} http_state_t;
 
 static http_state_t g_state;
 

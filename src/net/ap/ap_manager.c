@@ -4,9 +4,9 @@
 #include "pico/cyw43_arch.h"
 #include <string.h>
 #include "lwip/ip4_addr.h"
-#include "dhcp/dhcpserver.h"
-#include "http/http_server.h"
-#include "api/api.h"
+#include "dhcpserver.h"
+#include "http_server.h"
+#include "api.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "serial.h"

@@ -33,7 +33,7 @@
 #include <errno.h>
 
 #include "cyw43_config.h"
-#include "dhcp/dhcpserver.h"
+#include "dhcpserver.h"
 #include "lwip/udp.h"
 
 #define DHCPDISCOVER    (1)

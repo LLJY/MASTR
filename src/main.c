@@ -11,8 +11,8 @@
 #include "constants.h"
 #include "protocol.h"
 #include "crypto.h"
-#include "net/wifi_ap.h"
-#include "net/http/http_server.h"
+#include "wifi_ap.h"
+#include "http_server.h"
 #include "cpu_monitor.h"
 
 // Add binary info

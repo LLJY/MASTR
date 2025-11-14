@@ -2,6 +2,7 @@
 #define HTTP_SERVER_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 struct tcp_pcb;
 typedef void (*http_handler_fn)(struct tcp_pcb *pcb, const char *request);
@@ -17,5 +18,16 @@ void http_send_json(struct tcp_pcb *pcb, int status_code, const char *json_body)
 
 // HTTP connection monitoring functions
 uint32_t http_get_active_connections(void);
+
+typedef struct {
+    char request[1024];
+    int request_len;
+    bool in_use;
+    bool close_when_sent;
+} http_state_t;
+
+#define MAX_ROUTES 16 
+static void http_connection_opened(void);
+static void http_connection_closed(void);
 
 #endif // HTTP_SERVER_H
