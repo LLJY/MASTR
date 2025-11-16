@@ -10,14 +10,23 @@
 #include "serial.h"
 
 
-struct route_entry { const char *path; http_handler_fn handler; };
+struct route_entry { 
+    const char *path; 
+    http_handler_fn handler;
+    bool requires_auth;  // Does this route require bearer token auth?
+};
 static struct route_entry routes[MAX_ROUTES];
 
 int http_register(const char *path, http_handler_fn handler) {
+    return http_register_auth(path, handler, false);  // Public by default
+}
+
+int http_register_auth(const char *path, http_handler_fn handler, bool requires_auth) {
     for (int i = 0; i < MAX_ROUTES; ++i) {
         if (routes[i].path == NULL) {
             routes[i].path = path;
             routes[i].handler = handler;
+            routes[i].requires_auth = requires_auth;
             return 0;
         }
     }
@@ -40,11 +49,13 @@ static void reset_state(void) {
 }
 
 static void send_response(struct tcp_pcb *pcb, const char *status, const char *content_type, const char *body) {
-    char header[256];
+    char header[512];
     int header_len = snprintf(header, sizeof(header),
         "HTTP/1.1 %s\r\n"
         "Content-Type: %s\r\n"
         "Access-Control-Allow-Origin: *\r\n"
+        "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+        "Access-Control-Allow-Headers: Content-Type, Authorization\r\n"
         "Connection: close\r\n"
         "Content-Length: %d\r\n\r\n",
         status, content_type, (int)strlen(body));
@@ -71,8 +82,30 @@ void http_send_json(struct tcp_pcb *pcb, int status_code, const char *json_body)
 static void handle_request(struct tcp_pcb *pcb, char *request) {
     char method[8], path[64];
     sscanf(request, "%7s %63s", method, path);
+    
+    // Handle CORS preflight OPTIONS requests
+    if (strcmp(method, "OPTIONS") == 0) {
+        const char *cors_response = 
+            "HTTP/1.1 204 No Content\r\n"
+            "Access-Control-Allow-Origin: *\r\n"
+            "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+            "Access-Control-Allow-Headers: Content-Type, Authorization\r\n"
+            "Access-Control-Max-Age: 86400\r\n"
+            "\r\n";
+        tcp_write(pcb, cors_response, strlen(cors_response), TCP_WRITE_FLAG_COPY);
+        tcp_output(pcb);
+        g_state.close_when_sent = true;
+        return;
+    }
+    
     for (int i = 0; i < MAX_ROUTES; ++i) {
         if (routes[i].path && strcmp(path, routes[i].path) == 0) {
+            // Check if this route requires authentication
+            if (routes[i].requires_auth && !http_validate_bearer_token(request)) {
+                send_response(pcb, "401 Unauthorized", "application/json", 
+                    "{\"error\":\"unauthorized\",\"message\":\"Bearer token required. Call POST /api/auth/generate-token first.\"}");
+                return;
+            }
             routes[i].handler(pcb, request);
             return;
         }
