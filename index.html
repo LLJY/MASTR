@@ -667,6 +667,7 @@
             <div class="panel-content" style="flex-direction: row; gap: 10px; justify-content: center;">
                 <button class="button button-primary" onclick="refreshStatus()" style="flex: 1;">Refresh Status</button>
                 <button class="button button-secondary" onclick="testPing()" style="flex: 1;">Test Ping</button>
+                <button class="button button-secondary" onclick="resetToken()" style="flex: 1;">Reset Token</button>
             </div>
         </div>
     </div>
@@ -780,6 +781,193 @@
     </div>
 
     <script>
+        // ============ Bearer Token Management ============
+        const BEARER_TOKEN_KEY = 'mastr_bearer_token';
+
+        function getBearerToken() {
+            return localStorage.getItem(BEARER_TOKEN_KEY);
+        }
+
+        function cacheBearerToken(token) {
+            localStorage.setItem(BEARER_TOKEN_KEY, token);
+        }
+
+        async function fetchWithAuth(url, options = {}) {
+            const token = getBearerToken();
+            console.log('fetchWithAuth - URL:', url);
+            console.log('fetchWithAuth - token exists:', !!token);
+            console.log('fetchWithAuth - token value:', token);
+            if (token && token !== 'token_already_exists') {
+                if (!options.headers) {
+                    options.headers = {};
+                }
+                // Make sure we don't overwrite existing headers
+                options.headers = {
+                    ...options.headers,
+                    'Authorization': `Bearer ${token}`
+                };
+                console.log('fetchWithAuth - headers:', options.headers);
+            }
+            return fetch(url, options);
+        }
+
+        async function generateBearerToken() {
+            try {
+                const response = await fetch('http://192.168.4.1/api/auth/generate-token', {
+                    method: 'POST'
+                });
+                if (response.status === 409) {
+                    return 'token_already_exists';
+                }
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const data = await response.json();
+                if (!data.bearer_token) {
+                    throw new Error('No bearer token in response');
+                }
+                return data.bearer_token;
+            } catch (error) {
+                throw new Error(`Failed to generate token: ${error.message}`);
+            }
+        }
+
+        async function initializeTokenAuth() {
+            const cachedToken = getBearerToken();
+            console.log('initializeTokenAuth - cached token:', cachedToken ? 'exists' : 'none');
+            if (cachedToken) {
+                console.log('Using cached token');
+                return true;
+            }
+            
+            console.log('No token found, showing modal');
+            return new Promise((resolve) => {
+                showTokenSetupModal(() => {
+                    resolve(true);
+                });
+            });
+        }
+
+        function showTokenSetupModal(callback) {
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999';
+            modal.innerHTML = `
+                <div id="tokenModalContent" style="background:#262626;border-radius:12px;padding:40px;max-width:500px;box-shadow:0 20px 60px rgba(0,0,0,0.5);border:1px solid #333">
+                    <h2 style="margin-bottom:20px;color:#fff">🔐 Bearer Token Setup</h2>
+                    <p style="margin-bottom:20px;font-size:14px;color:#999">Set up your API authentication token.</p>
+                    
+                    <!-- Generate Tab -->
+                    <div id="generateTab" style="display:block">
+                        <p style="margin-bottom:15px;font-size:12px;color:#888">Option 1: Generate a new token</p>
+                        <button onclick="startGenerateToken()" style="width:100%;padding:10px;background:#1890ff;color:white;border:none;border-radius:4px;cursor:pointer;margin-bottom:20px">Generate New Token</button>
+                        
+                        <div style="text-align:center;color:#666;margin-bottom:20px">or</div>
+                        
+                        <p style="margin-bottom:15px;font-size:12px;color:#888">Option 2: Enter an existing token</p>
+                        <textarea id="manualTokenInput" placeholder="Paste your 64-character bearer token..." style="width:100%;height:80px;background:#1e1e1e;border:1px solid #444;border-radius:4px;padding:10px;color:#0f0;font-family:monospace;font-size:11px;resize:none;margin-bottom:10px"></textarea>
+                        <button onclick="submitManualToken()" style="width:100%;padding:10px;background:#4CAF50;color:white;border:none;border-radius:4px;cursor:pointer">Use This Token</button>
+                    </div>
+                    
+                    <!-- Generating Tab -->
+                    <div id="generatingTab" style="display:none">
+                        <div id="tokenStatus" style="text-align:center;margin:20px 0">
+                            <p style="color:#667eea">Generating token...</p>
+                        </div>
+                        <div id="tokenSuccess" style="display:none">
+                            <p style="margin-bottom:10px;font-size:12px;color:#888">Your token:</p>
+                            <input type="text" id="generatedToken" readonly style="width:100%;padding:10px;margin-bottom:10px;border:1px solid #444;border-radius:4px;font-family:monospace;font-size:11px;background:#1e1e1e;color:#0f0">
+                            <button onclick="copyToken()" style="width:100%;padding:10px;background:#667eea;color:white;border:none;border-radius:4px;cursor:pointer;margin-bottom:10px">Copy Token</button>
+                            <button onclick="completeSetup()" style="width:100%;padding:10px;background:#4CAF50;color:white;border:none;border-radius:4px;cursor:pointer">Done</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Prevent modal from closing when clicking/dragging inside the content
+            modal.addEventListener('mousedown', function(e) {
+                if (e.target === modal) {
+                    e.preventDefault();
+                }
+            });
+            
+            document.body.appendChild(modal);
+            window.tokenModal = modal;
+            window.tokenCallback = callback;
+        }
+
+        function startGenerateToken() {
+            document.getElementById('generateTab').style.display = 'none';
+            document.getElementById('generatingTab').style.display = 'block';
+            
+            generateBearerToken()
+                .then(token => {
+                    cacheBearerToken(token);
+                    document.getElementById('tokenStatus').style.display = 'none';
+                    document.getElementById('tokenSuccess').style.display = 'block';
+                    document.getElementById('generatedToken').value = token;
+                    window.currentToken = token;
+                })
+                .catch(error => {
+                    document.getElementById('tokenStatus').innerHTML = `<p style="color:#d32f2f">Error: ${error.message}</p>`;
+                });
+        }
+
+        function submitManualToken() {
+            const token = document.getElementById('manualTokenInput').value.trim();
+            
+            if (!token) {
+                showMessage('Please enter a token', 'error');
+                return;
+            }
+            
+            if (token.length !== 64) {
+                showMessage('Token must be 64 characters', 'error');
+                return;
+            }
+            
+            if (!/^[0-9a-fA-F]{64}$/i.test(token)) {
+                showMessage('Token must be valid hex characters', 'error');
+                return;
+            }
+            
+            cacheBearerToken(token);
+            showMessage('Token saved successfully!', 'success');
+            
+            // Close modal and trigger callback
+            setTimeout(() => {
+                completeSetup();
+            }, 500);
+        }
+
+        function copyToken() {
+            const token = document.getElementById('generatedToken').value;
+            navigator.clipboard.writeText(token).then(() => {
+                showMessage('Token copied!', 'success');
+            }).catch(() => {
+                showMessage('Failed to copy', 'error');
+            });
+        }
+
+        function completeSetup() {
+            if (window.tokenModal) {
+                window.tokenModal.remove();
+            }
+            if (window.tokenCallback) {
+                window.tokenCallback();
+            }
+        }
+
+        function resetToken() {
+            if (confirm('Are you sure you want to reset your bearer token? You will need to generate or enter a new one.')) {
+                localStorage.removeItem('mastr_bearer_token');
+                showMessage('Token cleared. Reloading...', 'success');
+                setTimeout(() => {
+                    location.reload();
+                }, 1000);
+            }
+        }
+        // ============ End Bearer Token Management ============
+
         function showMessage(text, type) {
             const msg = document.getElementById('message');
             msg.textContent = text;
@@ -881,7 +1069,7 @@
             tokenContainer.style.display = 'none';
             step1NextBtn.style.display = 'block';
             
-            fetch('http://192.168.4.1/api/provision/token_info')
+            fetchWithAuth('http://192.168.4.1/api/provision/token_info')
                 .then(response => {
                     if (response.status === 503) {
                         // Still initializing, retry
@@ -1019,7 +1207,7 @@
 
         function submitHostPublicKey(hostKey) {
             console.log('Submitting host key, length:', hostKey.length);
-            return fetch('http://192.168.4.1/api/provision/host_pubkey', {
+            return fetchWithAuth('http://192.168.4.1/api/provision/host_pubkey', {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain' },
                 body: hostKey
@@ -1060,7 +1248,7 @@
                     throw new Error('Host public key write timeout');
                 }
                 
-                return fetch('http://192.168.4.1/api/provision/host_pubkey/status')
+                return fetchWithAuth('http://192.168.4.1/api/provision/host_pubkey/status')
                     .then(response => {
                         if (!response.ok) {
                             throw new Error(`HTTP ${response.status}`);
@@ -1105,7 +1293,7 @@
         }
 
         function submitGoldenHash(goldenHash) {
-            return fetch('http://192.168.4.1/api/provision/golden_hash', {
+            return fetchWithAuth('http://192.168.4.1/api/provision/golden_hash', {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain' },
                 body: goldenHash
@@ -1146,7 +1334,7 @@
                     throw new Error('Golden hash write timeout');
                 }
                 
-                return fetch('http://192.168.4.1/api/provision/golden_hash/status')
+                return fetchWithAuth('http://192.168.4.1/api/provision/golden_hash/status')
                     .then(response => {
                         if (!response.ok) {
                             throw new Error(`HTTP ${response.status}`);
@@ -1209,7 +1397,7 @@
             // Stagger API calls to avoid overwhelming the server
             
             // Fetch provisioning status immediately
-            fetch('http://192.168.4.1/api/status')
+            fetchWithAuth('http://192.168.4.1/api/status')
                 .then(response => response.json())
                 .then(data => {
                     console.log('API Status response:', data);
@@ -1257,7 +1445,7 @@
             // Stagger other requests by 50ms each
             setTimeout(() => {
                 // Fetch network info
-                fetch('http://192.168.4.1/api/network')
+                fetchWithAuth('http://192.168.4.1/api/network')
                     .then(response => response.json())
                     .then(data => {
                         document.getElementById('networkSSID').textContent = data.ssid || '--';
@@ -1293,7 +1481,7 @@
             
             setTimeout(() => {
                 // Fetch RAM info
-                fetch('http://192.168.4.1/api/ram')
+                fetchWithAuth('http://192.168.4.1/api/ram')
                     .then(response => response.json())
                     .then(data => {
                         document.getElementById('ramTotal').textContent = data.ram_total_kb || '--';
@@ -1317,7 +1505,7 @@
             
             setTimeout(() => {
                 // Fetch CPU info
-                fetch('http://192.168.4.1/api/cpu')
+                fetchWithAuth('http://192.168.4.1/api/cpu')
                     .then(response => response.json())
                     .then(data => {
                         const cpuPercent = data.cpu_percent ?? 0;
@@ -1339,7 +1527,7 @@
 
             setTimeout(() => {
                 // Fetch Temperature
-                fetch('http://192.168.4.1/api/temp')
+                fetchWithAuth('http://192.168.4.1/api/temp')
                     .then(response => response.json())
                     .then(data => {
                         const temp = data.temp_c ?? '--';
@@ -1355,7 +1543,7 @@
             const btn = document.getElementById('configureBtn');
             btn.disabled = true;
             btn.textContent = 'Configuring...';
-            fetch('http://192.168.4.1/api/claim')
+            fetchWithAuth('http://192.168.4.1/api/claim')
                 .then(resp => resp.json())
                 .then(data => {
                     if (data && data.status === 'ok') {
@@ -1407,7 +1595,10 @@
         });
 
         // Refresh every 5 seconds
-        window.addEventListener('load', refreshStatus);
+        window.addEventListener('load', async () => {
+            await initializeTokenAuth();
+            refreshStatus();
+        });
         setInterval(refreshStatus, 5000);
     </script>
 </body>

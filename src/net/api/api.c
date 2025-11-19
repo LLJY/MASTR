@@ -39,6 +39,10 @@ static bool g_claimed = false;
 // Cache the last generated password so we can optionally re-display or debug
 static char g_last_psk[33] = ""; // 32 chars + NUL
 
+// Bearer token authentication state
+static char g_bearer_token[65] = ""; // 64 hex chars + NUL (256-bit token)
+static bool g_bearer_token_generated = false;
+
 // Token pubkey caching/prefetch handled by crypt.c now
 
 // One-shot timer callback to restart AP with new password
@@ -75,6 +79,55 @@ static void generate_random_psk(char *out, size_t out_len) {
     out[target] = '\0';
 }
 
+// Generate a random bearer token (256-bit = 64 hex chars)
+static void generate_bearer_token(char *out, size_t out_len) {
+    if (out_len < 65) return; // Need at least 65 bytes (64 hex + NUL)
+    
+    for (int i = 0; i < 32; i++) {
+        uint32_t r = get_rand_32();
+        sprintf(&out[i*2], "%08x", (unsigned)r);
+    }
+    out[64] = '\0';
+}
+
+// Check if request has valid bearer token in Authorization header
+// Returns true if token is valid, false otherwise
+bool http_validate_bearer_token(const char *request) {
+    if (!g_bearer_token_generated || g_bearer_token[0] == '\0') {
+        // No token has been generated yet - reject all auth'd endpoints
+        return false;
+    }
+    
+    // Look for "Authorization: Bearer <token>" header
+    const char *auth_header = strstr(request, "Authorization: Bearer ");
+    if (!auth_header) {
+        return false;
+    }
+    
+    // Extract the token from the header
+    const char *token_start = auth_header + strlen("Authorization: Bearer ");
+    char request_token[65];
+    
+    // Read up to 64 chars or until we hit whitespace/newline
+    int i = 0;
+    while (i < 64 && token_start[i] != '\r' && token_start[i] != '\n' && token_start[i] != ' ' && token_start[i] != '\0') {
+        request_token[i] = token_start[i];
+        i++;
+    }
+    request_token[i] = '\0';
+    
+    // Compare tokens (constant-time to prevent timing attacks)
+    int match = 1;
+    for (int j = 0; j < 64; j++) {
+        if (g_bearer_token[j] != request_token[j]) {
+            match = 0;
+        }
+    }
+    
+    return match == 1;
+}
+
+
 // Claim handler: if not claimed, generate password, respond, then schedule AP restart.
 static void claim_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
@@ -101,6 +154,35 @@ static void claim_handler(struct tcp_pcb *pcb, const char *request) {
                      "{\"status\":\"ok\",\"ssid\":\"%s\",\"new_password\":\"%s\",\"reconnect_in_ms\":%u}",
                      wifi_ap_get_config()->ssid, g_last_psk, GRACE_MS);
     (void)n;
+    http_send_json(pcb, 200, body);
+}
+
+// Generate bearer token handler - POST /api/auth/generate-token
+// Returns a bearer token to be used for authenticating subsequent API requests
+// Can only be called once per device startup (when token is not yet generated)
+static void generate_token_handler(struct tcp_pcb *pcb, const char *request) {
+    (void)request;
+    API_DBG("[API] generate_token_handler called\n");
+    
+    if (g_bearer_token_generated) {
+        // Token already generated - return 409 Conflict
+        http_send_json(pcb, 409, "{\"error\":\"token_already_generated\",\"message\":\"Bearer token has already been issued for this device session\"}");
+        return;
+    }
+    
+    // Generate new bearer token
+    generate_bearer_token(g_bearer_token, sizeof(g_bearer_token));
+    g_bearer_token_generated = true;
+    
+    API_DBG("[API] Bearer token generated: %s\n", g_bearer_token);
+    
+    // Return the token to the client
+    char body[200];
+    int n = snprintf(body, sizeof(body),
+        "{\"status\":\"ok\",\"bearer_token\":\"%s\",\"message\":\"Store this token securely - it is your device password\"}",
+        g_bearer_token);
+    (void)n;
+    
     http_send_json(pcb, 200, body);
 }
 
@@ -573,41 +655,45 @@ static void reset_api_handler(struct tcp_pcb *pcb, const char *request) {
 #endif
 
 void api_register_routes(void) {
+    // Public endpoints (no auth required)
     http_register("/api/ping", ping_handler);
     http_register("/api/health", health_handler);
-    http_register("/api/status", status_handler);
-    http_register("/api/network", network_handler);
-    http_register("/api/ram", ram_handler);
-    http_register("/api/temp", temperature_handler);
-    http_register("/api/cpu", cpu_handler);
-    http_register("/api/claim", claim_handler);
+    http_register("/api/auth/generate-token", generate_token_handler);  // Generate bearer token (one-time)
+    
+    // Protected endpoints (require bearer token in Authorization header)
+    http_register_auth("/api/status", status_handler, true);
+    http_register_auth("/api/network", network_handler, true);
+    http_register_auth("/api/ram", ram_handler, true);
+    http_register_auth("/api/temp", temperature_handler, true);
+    http_register_auth("/api/cpu", cpu_handler, true);
+    http_register_auth("/api/claim", claim_handler, true);
     
     print_dbg("protocol state is currently at: 0x%02X", g_protocol_state.current_state);
     if(g_protocol_state.current_state == PROTOCOL_STATE_UNPROVISIONED){
-        // Provisioning token public key endpoint (single canonical path)
-        http_register("/api/provision/token_info", token_info_handler);
-        // Provisioning host public key endpoints (non-blocking versions)
-        http_register("/api/provision/host_pubkey", set_host_pubkey_handler);  // POST to set
-        http_register("/api/provision/host_pubkey/get", get_host_pubkey_handler);  // GET to read
-        http_register("/api/provision/host_pubkey/status", host_pubkey_status_handler);  // GET write status
-        // Provisioning golden hash endpoints (non-blocking versions)
-        http_register("/api/provision/golden_hash", set_golden_hash_handler);  // POST to set
-        http_register("/api/provision/golden_hash/status", golden_hash_status_handler);  // GET status
+        // Provisioning token public key endpoint (single canonical path) - protected
+        http_register_auth("/api/provision/token_info", token_info_handler, true);
+        // Provisioning host public key endpoints (non-blocking versions) - protected
+        http_register_auth("/api/provision/host_pubkey", set_host_pubkey_handler, true);  // POST to set
+        http_register_auth("/api/provision/host_pubkey/get", get_host_pubkey_handler, true);  // GET to read
+        http_register_auth("/api/provision/host_pubkey/status", host_pubkey_status_handler, true);  // GET write status
+        // Provisioning golden hash endpoints (non-blocking versions) - protected
+        http_register_auth("/api/provision/golden_hash", set_golden_hash_handler, true);  // POST to set
+        http_register_auth("/api/provision/golden_hash/status", golden_hash_status_handler, true);  // GET status
     }else{
         print_dbg("protocol has already been provisioned, skipping provisioning endpoints...");
     }
     #ifdef DEBUG
     if(g_protocol_state.current_state != PROTOCOL_STATE_UNPROVISIONED){
         // when in debug, register endpoints anyway.
-        http_register("/api/provision/token_info", token_info_handler);
-        http_register("/api/provision/host_pubkey", set_host_pubkey_handler);  // POST to set
-        http_register("/api/provision/host_pubkey/get", get_host_pubkey_handler);  // GET to read
-        http_register("/api/provision/host_pubkey/status", host_pubkey_status_handler);  // GET write status
-        http_register("/api/provision/golden_hash", set_golden_hash_handler);  // POST to set
-        http_register("/api/provision/golden_hash/status", golden_hash_status_handler);  // GET status
+        http_register_auth("/api/provision/token_info", token_info_handler, true);
+        http_register_auth("/api/provision/host_pubkey", set_host_pubkey_handler, true);  // POST to set
+        http_register_auth("/api/provision/host_pubkey/get", get_host_pubkey_handler, true);  // GET to read
+        http_register_auth("/api/provision/host_pubkey/status", host_pubkey_status_handler, true);  // GET write status
+        http_register_auth("/api/provision/golden_hash", set_golden_hash_handler, true);  // POST to set
+        http_register_auth("/api/provision/golden_hash/status", golden_hash_status_handler, true);  // GET status
         
         // also register an additional viewpoint for token reset.
-        http_register("/api/provision/reset", reset_api_handler); 
+        http_register_auth("/api/provision/reset", reset_api_handler, true); 
     }
     #endif
     // Ask crypt layer to spawn prefetch task (low priority)
