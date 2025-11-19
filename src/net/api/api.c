@@ -170,11 +170,17 @@ static void generate_token_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
     API_DBG("[API] generate_token_handler called\n");
     
+#ifndef DEBUG
     if (g_bearer_token_generated) {
         // Token already generated - return 409 Conflict
         http_send_json(pcb, 409, "{\"error\":\"token_already_generated\",\"message\":\"Bearer token has already been issued for this device session\"}");
         return;
     }
+#else
+    if (g_bearer_token_generated) {
+        API_DBG("[API] DEBUG build: regenerating bearer token for testing\n");
+    }
+#endif
     
     // Generate new bearer token
     generate_bearer_token(g_bearer_token, sizeof(g_bearer_token));
