@@ -782,32 +782,27 @@
 
     <script>
         // ============ Bearer Token Management ============
-        const BEARER_TOKEN_KEY = 'mastr_bearer_token';
+        let currentBearerToken = null;
 
-        function getBearerToken() {
-            return localStorage.getItem(BEARER_TOKEN_KEY);
+        function setBearerToken(token) {
+            currentBearerToken = token;
         }
 
-        function cacheBearerToken(token) {
-            localStorage.setItem(BEARER_TOKEN_KEY, token);
+        function clearBearerToken() {
+            currentBearerToken = null;
         }
 
         async function fetchWithAuth(url, options = {}) {
-            const token = getBearerToken();
-            console.log('fetchWithAuth - URL:', url);
-            console.log('fetchWithAuth - token exists:', !!token);
-            console.log('fetchWithAuth - token value:', token);
-            if (token && token !== 'token_already_exists') {
-                if (!options.headers) {
-                    options.headers = {};
-                }
-                // Make sure we don't overwrite existing headers
-                options.headers = {
-                    ...options.headers,
-                    'Authorization': `Bearer ${token}`
-                };
-                console.log('fetchWithAuth - headers:', options.headers);
+            if (!currentBearerToken) {
+                throw new Error('Bearer token is not set');
             }
+            if (!options.headers) {
+                options.headers = {};
+            }
+            options.headers = {
+                ...options.headers,
+                'Authorization': `Bearer ${currentBearerToken}`
+            };
             return fetch(url, options);
         }
 
@@ -817,7 +812,7 @@
                     method: 'POST'
                 });
                 if (response.status === 409) {
-                    return 'token_already_exists';
+                    throw new Error('A token was already generated for this session. Enter the existing token manually.');
                 }
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
@@ -833,16 +828,12 @@
         }
 
         async function initializeTokenAuth() {
-            const cachedToken = getBearerToken();
-            console.log('initializeTokenAuth - cached token:', cachedToken ? 'exists' : 'none');
-            if (cachedToken) {
-                console.log('Using cached token');
-                return true;
-            }
-            
-            console.log('No token found, showing modal');
             return new Promise((resolve) => {
                 showTokenSetupModal(() => {
+                    if (!currentBearerToken) {
+                        showMessage('Bearer token required to continue', 'error');
+                        return;
+                    }
                     resolve(true);
                 });
             });
@@ -901,11 +892,10 @@
             
             generateBearerToken()
                 .then(token => {
-                    cacheBearerToken(token);
+                    setBearerToken(token);
                     document.getElementById('tokenStatus').style.display = 'none';
                     document.getElementById('tokenSuccess').style.display = 'block';
                     document.getElementById('generatedToken').value = token;
-                    window.currentToken = token;
                 })
                 .catch(error => {
                     document.getElementById('tokenStatus').innerHTML = `<p style="color:#d32f2f">Error: ${error.message}</p>`;
@@ -930,8 +920,8 @@
                 return;
             }
             
-            cacheBearerToken(token);
-            showMessage('Token saved successfully!', 'success');
+            setBearerToken(token);
+            showMessage('Token accepted for this session', 'success');
             
             // Close modal and trigger callback
             setTimeout(() => {
@@ -940,7 +930,7 @@
         }
 
         function copyToken() {
-            const token = document.getElementById('generatedToken').value;
+            const token = document.getElementById('generatedToken').value || currentBearerToken || '';
             navigator.clipboard.writeText(token).then(() => {
                 showMessage('Token copied!', 'success');
             }).catch(() => {
@@ -949,6 +939,10 @@
         }
 
         function completeSetup() {
+            if (!currentBearerToken) {
+                showMessage('Bearer token is required before continuing', 'error');
+                return;
+            }
             if (window.tokenModal) {
                 window.tokenModal.remove();
             }
@@ -958,12 +952,12 @@
         }
 
         function resetToken() {
-            if (confirm('Are you sure you want to reset your bearer token? You will need to generate or enter a new one.')) {
-                localStorage.removeItem('mastr_bearer_token');
-                showMessage('Token cleared. Reloading...', 'success');
-                setTimeout(() => {
-                    location.reload();
-                }, 1000);
+            if (confirm('Clear the current bearer token and enter a new one?')) {
+                clearBearerToken();
+                showMessage('Token cleared. Please enter a new token.', 'success');
+                initializeTokenAuth().then(() => {
+                    refreshStatus();
+                });
             }
         }
         // ============ End Bearer Token Management ============
@@ -1384,6 +1378,8 @@
             return 'error';
         }
 
+        let refreshInProgress = false;
+
         function formatUptime(seconds) {
             const hours = Math.floor(seconds / 3600);
             const minutes = Math.floor((seconds % 3600) / 60);
@@ -1393,35 +1389,36 @@
             return `${secs}s`;
         }
 
-        function refreshStatus() {
-            // Stagger API calls to avoid overwhelming the server
-            
-            // Fetch provisioning status immediately
-            fetchWithAuth('http://192.168.4.1/api/status')
-                .then(response => response.json())
-                .then(data => {
-                    console.log('API Status response:', data);
-                    console.log('data.provisioned =', data.provisioned);
+        async function refreshStatus() {
+            if (!currentBearerToken) {
+                console.warn('Bearer token missing - refresh skipped');
+                return;
+            }
+            if (refreshInProgress) {
+                return;
+            }
+            refreshInProgress = true;
+
+            try {
+                try {
+                    const response = await fetchWithAuth('http://192.168.4.1/api/status');
+                    const data = await response.json();
                     
                     const provisioningIndicator = document.getElementById('provisioningIndicator');
                     const statusText = document.getElementById('statusText');
                     
                     if (data.provisioned) {
-                        console.log('Setting to PROVISIONED');
                         provisioningIndicator.className = 'status-indicator ok';
                         statusText.textContent = 'Provisioned ✓';
                     } else {
-                        console.log('Setting to NOT PROVISIONED');
                         provisioningIndicator.className = 'status-indicator error';
                         statusText.textContent = 'Not Provisioned';
                     }
 
-                    // Fill additional status fields
                     const uptime = data.uptime_s ?? 0;
                     document.getElementById('uptimeDisplay').textContent = formatUptime(uptime);
                     document.getElementById('state').textContent = data.state ?? '--';
 
-                    // Wi-Fi configured from g_claimed
                     const configured = !!data.wifi_configured;
                     document.getElementById('wifiConfigured').textContent = configured ? 'Yes' : 'No';
                     
@@ -1436,107 +1433,91 @@
                         document.getElementById('configureBtn').style.display = 'inline-block';
                         document.getElementById('claimResult').style.display = 'none';
                     }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
+                } catch (error) {
+                    console.error('Error fetching status:', error);
                     showMessage('Failed to fetch status', 'error');
-                });
-            
-            // Stagger other requests by 50ms each
-            setTimeout(() => {
-                // Fetch network info
-                fetchWithAuth('http://192.168.4.1/api/network')
-                    .then(response => response.json())
-                    .then(data => {
-                        document.getElementById('networkSSID').textContent = data.ssid || '--';
-                        document.getElementById('networkSecurity').textContent = data.security || '--';
-                        document.getElementById('networkIP').textContent = data.ap_ip || '--';
-                        document.getElementById('ipAddress').textContent = data.ap_ip || '--';
-                        
-                        document.getElementById('networkIndicator').className = 'status-indicator ok';
-                        document.getElementById('networkStatus').textContent = 'Network Active';
-                        
-                        // Display connected clients
-                        const clientsList = document.getElementById('clientsList');
-                        const clientCount = data.clients ? data.clients.length : 0;
-                        document.getElementById('clientCount').textContent = clientCount;
-                        
-                        if (data.clients && data.clients.length > 0) {
-                            clientsList.innerHTML = data.clients.map(client => 
-                                `<div style="padding: 8px; background: #2a2a2a; border-radius: 3px; margin-bottom: 6px; width: 100%;">
-                                    <div style="margin-bottom: 3px;"><strong>MAC:</strong> ${client.mac}</div>
-                                    <div><strong>IP:</strong> ${client.ip}</div>
-                                </div>`
-                            ).join('');
-                        } else {
-                            clientsList.innerHTML = '<em style="color: #666;">No connected clients</em>';
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error fetching network info:', error);
-                        document.getElementById('networkIndicator').className = 'status-indicator error';
-                        document.getElementById('networkStatus').textContent = 'Network Error';
-                    });
-            }, 50);
-            
-            setTimeout(() => {
-                // Fetch RAM info
-                fetchWithAuth('http://192.168.4.1/api/ram')
-                    .then(response => response.json())
-                    .then(data => {
-                        document.getElementById('ramTotal').textContent = data.ram_total_kb || '--';
-                        document.getElementById('ramUsed').textContent = data.ram_used_kb || '--';
-                        const ramPercent = data.ram_used_percent ?? 0;
-                        document.getElementById('ramDisplay').textContent = ramPercent.toFixed(1) + ' %';
-                        
-                        const ramDisplay = document.getElementById('ramDisplay');
-                        if (ramPercent > 80) {
-                            ramDisplay.style.color = '#ff7875'; // Red
-                        } else if (ramPercent > 60) {
-                            ramDisplay.style.color = '#faad14'; // Yellow
-                        } else {
-                            ramDisplay.style.color = '#52c41a'; // Green
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error fetching RAM info:', error);
-                    });
-            }, 100);
-            
-            setTimeout(() => {
-                // Fetch CPU info
-                fetchWithAuth('http://192.168.4.1/api/cpu')
-                    .then(response => response.json())
-                    .then(data => {
-                        const cpuPercent = data.cpu_percent ?? 0;
-                        document.getElementById('cpuDisplay').textContent = cpuPercent.toFixed(1) + '%';
-                        
-                        const cpuDisplay = document.getElementById('cpuDisplay');
-                        if (cpuPercent > 80) {
-                            cpuDisplay.style.color = '#ff7875'; // Red
-                        } else if (cpuPercent > 60) {
-                            cpuDisplay.style.color = '#faad14'; // Yellow
-                        } else {
-                            cpuDisplay.style.color = '#ff7a45'; // Orange
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error fetching CPU info:', error);
-                    });
-            }, 150);
+                }
 
-            setTimeout(() => {
-                // Fetch Temperature
-                fetchWithAuth('http://192.168.4.1/api/temp')
-                    .then(response => response.json())
-                    .then(data => {
-                        const temp = data.temp_c ?? '--';
-                        document.getElementById('tempDisplay').textContent = typeof temp === 'number' ? temp.toFixed(1) : temp;
-                    })
-                    .catch(error => {
-                        console.error('Error fetching temperature:', error);
-                    });
-            }, 200);
+                try {
+                    const response = await fetchWithAuth('http://192.168.4.1/api/network');
+                    const data = await response.json();
+                    document.getElementById('networkSSID').textContent = data.ssid || '--';
+                    document.getElementById('networkSecurity').textContent = data.security || '--';
+                    document.getElementById('networkIP').textContent = data.ap_ip || '--';
+                    document.getElementById('ipAddress').textContent = data.ap_ip || '--';
+                    
+                    document.getElementById('networkIndicator').className = 'status-indicator ok';
+                    document.getElementById('networkStatus').textContent = 'Network Active';
+                    
+                    const clientsList = document.getElementById('clientsList');
+                    const clientCount = data.clients ? data.clients.length : 0;
+                    document.getElementById('clientCount').textContent = clientCount;
+                    
+                    if (data.clients && data.clients.length > 0) {
+                        clientsList.innerHTML = data.clients.map(client => 
+                            `<div style="padding: 8px; background: #2a2a2a; border-radius: 3px; margin-bottom: 6px; width: 100%;">
+                                <div style="margin-bottom: 3px;"><strong>MAC:</strong> ${client.mac}</div>
+                                <div><strong>IP:</strong> ${client.ip}</div>
+                            </div>`
+                        ).join('');
+                    } else {
+                        clientsList.innerHTML = '<em style="color: #666;">No connected clients</em>';
+                    }
+                } catch (error) {
+                    console.error('Error fetching network info:', error);
+                    document.getElementById('networkIndicator').className = 'status-indicator error';
+                    document.getElementById('networkStatus').textContent = 'Network Error';
+                }
+
+                try {
+                    const response = await fetchWithAuth('http://192.168.4.1/api/ram');
+                    const data = await response.json();
+                    document.getElementById('ramTotal').textContent = data.ram_total_kb || '--';
+                    document.getElementById('ramUsed').textContent = data.ram_used_kb || '--';
+                    const ramPercent = data.ram_used_percent ?? 0;
+                    document.getElementById('ramDisplay').textContent = ramPercent.toFixed(1) + ' %';
+                    
+                    const ramDisplay = document.getElementById('ramDisplay');
+                    if (ramPercent > 80) {
+                        ramDisplay.style.color = '#ff7875';
+                    } else if (ramPercent > 60) {
+                        ramDisplay.style.color = '#faad14';
+                    } else {
+                        ramDisplay.style.color = '#52c41a';
+                    }
+                } catch (error) {
+                    console.error('Error fetching RAM info:', error);
+                }
+
+                try {
+                    const response = await fetchWithAuth('http://192.168.4.1/api/cpu');
+                    const data = await response.json();
+                    const cpuPercent = data.cpu_percent ?? 0;
+                    document.getElementById('cpuDisplay').textContent = cpuPercent.toFixed(1) + '%';
+                    
+                    const cpuDisplay = document.getElementById('cpuDisplay');
+                    if (cpuPercent > 80) {
+                        cpuDisplay.style.color = '#ff7875';
+                    } else if (cpuPercent > 60) {
+                        cpuDisplay.style.color = '#faad14';
+                    } else {
+                        cpuDisplay.style.color = '#ff7a45';
+                    }
+                } catch (error) {
+                    console.error('Error fetching CPU info:', error);
+                }
+
+                try {
+                    const response = await fetchWithAuth('http://192.168.4.1/api/temp');
+                    const data = await response.json();
+                    const temp = data.temp_c ?? '--';
+                    document.getElementById('tempDisplay').textContent = typeof temp === 'number' ? temp.toFixed(1) : temp;
+                } catch (error) {
+                    console.error('Error fetching temperature:', error);
+                }
+            } finally {
+                refreshInProgress = false;
+            }
         }
 
         function configureWifi() {
@@ -1598,8 +1579,8 @@
         window.addEventListener('load', async () => {
             await initializeTokenAuth();
             refreshStatus();
+            window.refreshTimer = setInterval(refreshStatus, 5000);
         });
-        setInterval(refreshStatus, 5000);
     </script>
 </body>
 </html>

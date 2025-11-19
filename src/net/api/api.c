@@ -81,11 +81,17 @@ static void generate_random_psk(char *out, size_t out_len) {
 
 // Generate a random bearer token (256-bit = 64 hex chars)
 static void generate_bearer_token(char *out, size_t out_len) {
+    static const char HEX[] = "0123456789abcdef";
     if (out_len < 65) return; // Need at least 65 bytes (64 hex + NUL)
-    
-    for (int i = 0; i < 32; i++) {
+
+    for (int chunk = 0; chunk < 8; ++chunk) {
         uint32_t r = get_rand_32();
-        sprintf(&out[i*2], "%08x", (unsigned)r);
+        for (int byte = 0; byte < 4; ++byte) {
+            uint8_t b = (uint8_t)((r >> (byte * 8)) & 0xFF);
+            int idx = chunk * 8 + byte * 2;
+            out[idx] = HEX[(b >> 4) & 0x0F];
+            out[idx + 1] = HEX[b & 0x0F];
+        }
     }
     out[64] = '\0';
 }
