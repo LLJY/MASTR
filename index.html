@@ -1000,8 +1000,20 @@
             // Reset all steps
             document.getElementById('hostPublicKeyInput').value = '';
             document.getElementById('goldenHashInput').value = '';
-            document.getElementById('hostKeyStatus').style.display = 'none';
-            document.getElementById('hashStatus').style.display = 'none';
+            const hostKeyStatus = document.getElementById('hostKeyStatus');
+            const hashStatus = document.getElementById('hashStatus');
+            hostKeyStatus.style.display = 'none';
+            hostKeyStatus.className = 'provision-status';
+            document.getElementById('hostKeyStatusText').textContent = '';
+            hashStatus.style.display = 'none';
+            hashStatus.className = 'provision-status';
+            document.getElementById('hashStatusText').textContent = '';
+            const step2Btn = document.getElementById('step2SubmitBtn');
+            step2Btn.disabled = false;
+            step2Btn.textContent = 'Submit & Verify';
+            const step3Btn = document.getElementById('step3SubmitBtn');
+            step3Btn.disabled = false;
+            step3Btn.textContent = 'Complete Provisioning';
             
             const modal = document.getElementById('provisioningModal');
             modal.classList.add('show');
@@ -1261,21 +1273,27 @@
                             // Still pending, retry with increasing delay
                             const delay = Math.min(100 + (attempts * 50), 500);
                             console.log(`Host key still pending, retrying in ${delay}ms...`);
-                            return new Promise(resolve => {
-                                setTimeout(() => poll().then(resolve), delay);
+                            return new Promise((resolve, reject) => {
+                                setTimeout(() => {
+                                    poll().then(resolve).catch(reject);
+                                }, delay);
                             });
                         } else {
                             // Unknown status, retry
-                            return new Promise(resolve => {
-                                setTimeout(() => poll().then(resolve), 200);
+                            return new Promise((resolve, reject) => {
+                                setTimeout(() => {
+                                    poll().then(resolve).catch(reject);
+                                }, 200);
                             });
                         }
                     })
                     .catch(error => {
                         if (attempts < maxAttempts) {
                             console.log(`Poll error (attempt ${attempts}):`, error.message);
-                            return new Promise(resolve => {
-                                setTimeout(() => poll().then(resolve), 200);
+                            return new Promise((resolve, reject) => {
+                                setTimeout(() => {
+                                    poll().then(resolve).catch(reject);
+                                }, 200);
                             });
                         } else {
                             throw error;
@@ -1347,21 +1365,27 @@
                             // Still pending, retry with increasing delay
                             const delay = Math.min(100 + (attempts * 50), 500);
                             console.log(`Golden hash still processing, retrying in ${delay}ms...`);
-                            return new Promise(resolve => {
-                                setTimeout(() => poll().then(resolve), delay);
+                            return new Promise((resolve, reject) => {
+                                setTimeout(() => {
+                                    poll().then(resolve).catch(reject);
+                                }, delay);
                             });
                         } else {
                             // Unknown status, retry
-                            return new Promise(resolve => {
-                                setTimeout(() => poll().then(resolve), 200);
+                            return new Promise((resolve, reject) => {
+                                setTimeout(() => {
+                                    poll().then(resolve).catch(reject);
+                                }, 200);
                             });
                         }
                     })
                     .catch(error => {
                         if (attempts < maxAttempts) {
                             console.log(`Poll error (attempt ${attempts}):`, error.message);
-                            return new Promise(resolve => {
-                                setTimeout(() => poll().then(resolve), 200);
+                            return new Promise((resolve, reject) => {
+                                setTimeout(() => {
+                                    poll().then(resolve).catch(reject);
+                                }, 200);
                             });
                         } else {
                             throw error;
