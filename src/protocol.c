@@ -35,7 +35,7 @@ void protocol_provision(const uint8_t* p_golden_hash,
 }
 
 // delete golden hash and public key
-void protocol_unprovision(){
+void protocol_unprovision(void){
     static const uint8_t zero_golden_hash[32] = {0};
     static const uint8_t zero_pub_key[64] = {0};
     
@@ -559,7 +559,7 @@ void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload
  * Initiates channel verification by sending encrypted ping challenge.
  * Transitions state to 0x22 (channel verification), enabling encryption for all subsequent messages.
  */
-void protocol_send_channel_verification_challenge() {
+void protocol_send_channel_verification_challenge(void) {
     #ifndef UNIT_TEST
     const uint8_t ping_message[] = {'p', 'i', 'n', 'g'};
 

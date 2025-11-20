@@ -133,7 +133,7 @@ void test_inject_rx_data(const uint8_t* data, uint16_t len) {
 }
 #endif
 
-void serial_process_data()
+void serial_process_data(void)
 {
     #ifndef UNIT_TEST
     // Wait for notification from ISR (pure event-driven, no polling)
@@ -397,7 +397,7 @@ void print_dbg(const char *format, ...) {
     #endif
 }
 
-void send_shutdown_signal()
+void send_shutdown_signal(void)
 {
     print_dbg("SHUTDOWN: Integrity failure detected");
     send_message(T2H_INTEGRITY_FAIL_HALT, NULL, 0);

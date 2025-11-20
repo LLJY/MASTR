@@ -16,13 +16,13 @@ typedef void* TaskHandle_t;
 void serial_init(TaskHandle_t task_handle);
 
 // Process received data (called from interrupt or task)
-void serial_process_data();
+void serial_process_data(void);
 
 static void serial_process_complete_frame();
 
 void send_message(uint8_t msg_type, uint8_t *payload, uint16_t len);
 
-void send_shutdown_signal();
+void send_shutdown_signal(void);
 
 // Debug print function that sends via DEBUG_MSG protocol
 // Safe to call even when DEBUG is not defined
