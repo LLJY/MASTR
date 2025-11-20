@@ -17,4 +17,27 @@
 #define DEFAULT_STACK_SIZE 1024
 #endif 
 
+// ============================================================================
+// Branch Prediction Hints (POSIX-style, mirrors Linux kernel)
+// ============================================================================
+#ifdef __GNUC__
+#define likely(x)       __builtin_expect(!!(x), 1)
+#define unlikely(x)     __builtin_expect(!!(x), 0)
+#else
+#define likely(x)       (x)
+#define unlikely(x)     (x)
+#endif
+
+// ============================================================================
+// Watchdog Constants (main.c)
+// ============================================================================
+#define WATCHDOG_HEAP_CHECK_INTERVAL_MS     5000
+#define HEAP_WARNING_THRESHOLD_BYTES        4096
+#define HEAP_MIN_EVER_THRESHOLD_BYTES       2048
+#define HEAP_WARNING_PERSISTENT_COUNT       3
+#define WATCHDOG_WIFI_CHECK_INTERVAL_MS     10000
+#define WIFI_FAILURE_RESTART_THRESHOLD      3
+#define WATCHDOG_HTTP_CHECK_INTERVAL_MS     15000
+#define HTTP_HIGH_CONNECTION_THRESHOLD      10
+
 #endif

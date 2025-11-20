@@ -1,6 +1,8 @@
 #include "protocol.h"
 #include "serial.h"
 #include "crypto.h"
+#include "constants.h"
+
 #include <stdint.h>
 #include <string.h>
 
@@ -149,9 +151,11 @@ bool protocol_is_session_valid(void) {
  * An idiomatic panic helper that tells us what happens.
  * NOTE: WHEN IFDEBUG = 0 print_dbg WILL NOT OUTPUT ANYTHING.
  */
-void protocol_panic(const char* reason){
+__attribute__((cold, noreturn, noinline))
+void protocol_panic(const char* const reason){
     print_dbg("SOMETHING WENT WRONG PANIC %s", reason);
     protocol_enter_halt_spam_state();
+    __builtin_unreachable();
 }
 
 /**
@@ -159,7 +163,7 @@ void protocol_panic(const char* reason){
  * This function never returns - it's a security measure for integrity failures.
  */
  #ifndef UNIT_TEST
- __attribute__((noreturn))
+ __attribute__((noreturn, cold, noinline))
  #endif
 void protocol_enter_halt_spam_state(void) {
     g_protocol_state.in_halt_state = true;
@@ -174,6 +178,7 @@ void protocol_enter_halt_spam_state(void) {
         send_message(T2H_INTEGRITY_FAIL_HALT, NULL, 0);
         vTaskDelay(pdMS_TO_TICKS(1000));  // Spam every second
     }
+    __builtin_unreachable();
     #endif
 }
 
@@ -212,7 +217,7 @@ void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload
     {
         case H2T_ECDH_SHARE:
             // Accept ECDH at state 0x20 (initial) or 0x21 (re-attestation response)
-            if (g_protocol_state.current_state != 0x20 && g_protocol_state.current_state != 0x21) {
+            if (unlikely(g_protocol_state.current_state != 0x20 && g_protocol_state.current_state != 0x21)) {
                 print_dbg("ERROR: ECDH share rejected (wrong state: 0x%02X)\n", g_protocol_state.current_state);
                 send_shutdown_signal();
                 break;

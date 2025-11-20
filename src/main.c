@@ -72,18 +72,18 @@ void watchdog_task(void *params) {
         // === SYSTEM HEALTH MONITORING ===
         
         // 1. Memory health check (every 5 seconds)
-        if (current_time_ms - last_heap_check > 5000) {
+        if (current_time_ms - last_heap_check > WATCHDOG_HEAP_CHECK_INTERVAL_MS) {
             size_t free_heap = xPortGetFreeHeapSize();
             size_t min_free_ever = xPortGetMinimumEverFreeHeapSize();
             
             // Warning if free heap drops below 4KB or minimum ever below 2KB
-            if (free_heap < 4096 || min_free_ever < 2048) {
+            if (free_heap < HEAP_WARNING_THRESHOLD_BYTES || min_free_ever < HEAP_MIN_EVER_THRESHOLD_BYTES) {
                 heap_warning_count++;
                 print_dbg("WATCHDOG: Low memory warning - Free: %u bytes, Min ever: %u bytes (count: %u)\n", 
                     (unsigned)free_heap, (unsigned)min_free_ever, heap_warning_count);
                 
                 // If persistent memory issues, force garbage collection
-                if (heap_warning_count > 3) {
+                if (heap_warning_count > HEAP_WARNING_PERSISTENT_COUNT) {
                     print_dbg("WATCHDOG: Forcing task cleanup due to persistent memory pressure\n");
                     // Could add task cleanup logic here if needed
                 }
@@ -109,7 +109,7 @@ void watchdog_task(void *params) {
         static uint32_t last_wifi_check = 0;
         static uint32_t wifi_failure_count = 0;
         
-        if (current_time_ms - last_wifi_check > 10000) {
+        if (current_time_ms - last_wifi_check > WATCHDOG_WIFI_CHECK_INTERVAL_MS) {
             // Check if AP is still operational
             bool ap_active = wifi_ap_is_active();
             if (!ap_active) {
@@ -117,7 +117,7 @@ void watchdog_task(void *params) {
                 print_dbg("WATCHDOG: WiFi AP failure detected (count: %u)\n", wifi_failure_count);
                 
                 // Try to restart AP after 3 consecutive failures
-                if (wifi_failure_count >= 3) {
+                if (wifi_failure_count >= WIFI_FAILURE_RESTART_THRESHOLD) {
                     print_dbg("WATCHDOG: Attempting WiFi AP recovery...\n");
                     wifi_ap_restart();
                     wifi_failure_count = 0; // Reset counter after restart attempt
@@ -132,10 +132,10 @@ void watchdog_task(void *params) {
         // 4. HTTP Server Health Check (every 15 seconds)
         static uint32_t last_http_check = 0;
         
-        if (current_time_ms - last_http_check > 15000) {
+        if (current_time_ms - last_http_check > WATCHDOG_HTTP_CHECK_INTERVAL_MS) {
             // Check for HTTP server responsiveness
             uint32_t active_connections = http_get_active_connections();
-            if (active_connections > 10) {
+            if (active_connections > HTTP_HIGH_CONNECTION_THRESHOLD) {
                 print_dbg("WATCHDOG: High HTTP connection count: %u (potential DoS)\n", active_connections);
             }
             

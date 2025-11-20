@@ -1,6 +1,8 @@
 #include "crypto.h"
 #include "protocol.h"
 #include "serial.h"
+#include "constants.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -84,7 +86,7 @@ bool crypto_token_pubkey_failed(void) { return g_token_pubkey_failed; }
  * Generates initialization vector for AES-GCM using hardware RNG.
  * Uses Pico's hardware random number generator for cryptographically secure IVs.
  */
-static void generate_iv(uint8_t* iv_out) {
+static void generate_iv(uint8_t* const iv_out) {
 #ifndef UNIT_TEST
     // Use Pico hardware RNG for cryptographically secure random IV
     for (int i = 0; i < GCM_IV_SIZE; i++) {
@@ -98,9 +100,9 @@ static void generate_iv(uint8_t* iv_out) {
 /**
  * Computes SHA256 hash of message.
  * Uses hardware acceleration on RP2350, software on RP2040.
- * 
+ *
  * Set FORCE_SOFTWARE_SHA256=1 to test software SHA256 on RP2350.
- * 
+ *
  * @param message Input message to hash
  * @param message_len Length of input message
  * @param hash_out Output buffer for 32-byte hash
@@ -133,32 +135,34 @@ static void compute_sha256(const uint8_t* message, size_t message_len, uint8_t* 
 /**
  * Encrypts plaintext using AES-128-GCM.
  * Output format: [IV (12)][Ciphertext (N)][Tag (16)]
- * 
+ *
  * @return true if encryption succeeded, false otherwise
- */bool crypto_aes_gcm_encrypt(
-    const uint8_t* plaintext,
+ */
+__attribute__((hot, nonnull(1, 3, 4, 5)))
+bool crypto_aes_gcm_encrypt(
+    const uint8_t* restrict plaintext,
     uint16_t plaintext_len,
-    const uint8_t* key,
-    uint8_t* ciphertext_out,
-    uint16_t* ciphertext_len_out
+    const uint8_t* restrict key,
+    uint8_t* restrict ciphertext_out,
+    uint16_t* restrict ciphertext_len_out
 ) {
 #ifndef UNIT_TEST
     mbedtls_gcm_context gcm;
     mbedtls_gcm_init(&gcm);
-    
+
     // Generate random IV
     uint8_t iv[GCM_IV_SIZE];
     generate_iv(iv);
-    
+
     // Set up the GCM context with AES-128
     int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key, AES_KEY_SIZE * 8);
     if (ret != 0) {
         mbedtls_gcm_free(&gcm);
         return false;
     }
-    
+
     uint8_t tag[GCM_TAG_SIZE];
-    
+
     ret = mbedtls_gcm_crypt_and_tag(
         &gcm,
         MBEDTLS_GCM_ENCRYPT,
@@ -170,18 +174,18 @@ static void compute_sha256(const uint8_t* message, size_t message_len, uint8_t* 
         GCM_TAG_SIZE,
         tag
     );
-    
+
     mbedtls_gcm_free(&gcm);
-    
+
     if (ret != 0) {
         return false;
     }
-    
+
     memcpy(ciphertext_out, iv, GCM_IV_SIZE);
     memcpy(ciphertext_out + GCM_IV_SIZE + plaintext_len, tag, GCM_TAG_SIZE);
-    
+
     *ciphertext_len_out = GCM_IV_SIZE + plaintext_len + GCM_TAG_SIZE;
-    
+
     return true;
 #else
     (void)plaintext; (void)plaintext_len; (void)key;
@@ -193,37 +197,38 @@ static void compute_sha256(const uint8_t* message, size_t message_len, uint8_t* 
 /**
  * Decrypts ciphertext using AES-128-GCM with authentication.
  * Input format: [IV (12)][Ciphertext (N)][Tag (16)]
- * 
+ *
  * @return true if decryption and authentication succeeded, false otherwise
  */
+__attribute__((hot, nonnull(1, 3, 4, 5)))
 bool crypto_aes_gcm_decrypt(
-    const uint8_t* ciphertext,
+    const uint8_t* restrict ciphertext,
     uint16_t ciphertext_len,
-    const uint8_t* key,
-    uint8_t* plaintext_out,
-    uint16_t* plaintext_len_out
+    const uint8_t* restrict key,
+    uint8_t* restrict plaintext_out,
+    uint16_t* restrict plaintext_len_out
 ) {
 #ifndef UNIT_TEST
     if (ciphertext_len < ENCRYPTION_OVERHEAD) {
         return false;
     }
-    
+
     mbedtls_gcm_context gcm;
     mbedtls_gcm_init(&gcm);
-    
+
     const uint8_t* iv = ciphertext;
     const uint8_t* encrypted_data = ciphertext + GCM_IV_SIZE;
     uint16_t encrypted_len = ciphertext_len - GCM_IV_SIZE - GCM_TAG_SIZE;
     const uint8_t* tag = ciphertext + ciphertext_len - GCM_TAG_SIZE;
-    
+
     uint8_t temp_plaintext[256];
-    
+
     int ret = mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key, AES_KEY_SIZE * 8);
     if (ret != 0) {
         mbedtls_gcm_free(&gcm);
         return false;
     }
-    
+
     ret = mbedtls_gcm_auth_decrypt(
         &gcm,
         encrypted_len,
@@ -233,16 +238,16 @@ bool crypto_aes_gcm_decrypt(
         encrypted_data,
         temp_plaintext
     );
-    
+
     mbedtls_gcm_free(&gcm);
-    
+
     if (ret != 0) {
         return false;
     }
-    
+
     memcpy(plaintext_out, temp_plaintext, encrypted_len);
     *plaintext_len_out = encrypted_len;
-    
+
     return true;
 #else
     (void)ciphertext; (void)ciphertext_len; (void)key;
@@ -257,18 +262,19 @@ bool crypto_aes_gcm_decrypt(
  *
  * @return true if processing succeeded, false on decryption failure
  */
+__attribute__((nonnull(1, 3, 4)))
 bool crypto_decrypt_frame_if_needed(
-    uint8_t* frame_buffer,
+    uint8_t* restrict frame_buffer,
     uint16_t frame_len,
-    uint8_t* decrypted_frame_out,
-    uint16_t* decrypted_len_out
+    uint8_t* restrict decrypted_frame_out,
+    uint16_t* restrict decrypted_len_out
 ) {
     extern protocol_state_t g_protocol_state;
-    
+
     // Use decoupled encryption flag instead of state
-    bool should_decrypt = g_protocol_state.is_encrypted;
-    
-    if (should_decrypt) {
+    const bool should_decrypt = g_protocol_state.is_encrypted;
+
+    if (likely(should_decrypt)) {
         if (!crypto_aes_gcm_decrypt(frame_buffer, frame_len, g_protocol_state.aes_session_key,
                             decrypted_frame_out, decrypted_len_out)) {
             return false;
@@ -277,7 +283,7 @@ bool crypto_decrypt_frame_if_needed(
         memcpy(decrypted_frame_out, frame_buffer, frame_len);
         *decrypted_len_out = frame_len;
     }
-    
+
     return true;
 }
 
@@ -287,21 +293,22 @@ bool crypto_decrypt_frame_if_needed(
  *
  * @return true if processing succeeded, false on encryption failure
  */
+__attribute__((nonnull(2, 4, 5)))
 bool crypto_encrypt_frame_if_needed(
     uint8_t msg_type,
-    const uint8_t* frame,
+    const uint8_t* restrict frame,
     uint16_t frame_len,
-    uint8_t* encrypted_frame_out,
-    uint16_t* encrypted_len_out
+    uint8_t* restrict encrypted_frame_out,
+    uint16_t* restrict encrypted_len_out
 ) {
     (void)msg_type;  // Unused in this implementation
-    
+
     extern protocol_state_t g_protocol_state;
-    
+
     // Use decoupled encryption flag instead of state
-    bool should_encrypt = g_protocol_state.is_encrypted;
-    
-    if (should_encrypt) {
+    const bool should_encrypt = g_protocol_state.is_encrypted;
+
+    if (likely(should_encrypt)) {
         if (!crypto_aes_gcm_encrypt(frame, frame_len, g_protocol_state.aes_session_key,
                             encrypted_frame_out, encrypted_len_out)) {
             return false;
@@ -310,30 +317,30 @@ bool crypto_encrypt_frame_if_needed(
         memcpy(encrypted_frame_out, frame, frame_len);
         *encrypted_len_out = frame_len;
     }
-    
+
     return true;
 }
 
 /**
  * Derives AES-128 session key from ECDH shared secret using HKDF-SHA256.
  * Uses salt "MASTR-Session-Key-v1" and empty info parameter.
- * 
+ *
  * @param shared_secret 32-byte ECDH shared secret
  * @param session_key_out Output buffer for 16-byte AES key
  * @return true if derivation succeeded, false otherwise
  */
 bool crypto_derive_session_key(const uint8_t* shared_secret, uint8_t* session_key_out) {
 #ifndef UNIT_TEST
-    
+
     const uint8_t salt[] = "MASTR-Session-Key-v1"; // Application-specific salt
     const uint8_t info[] = "";  // Optional context/info (empty for now)
-    
+
     // Use mbedTLS HKDF
     const mbedtls_md_info_t *md_info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
     if (md_info == NULL) {
         return false;
     }
-    
+
     int ret = mbedtls_hkdf(
         md_info,
         salt, sizeof(salt) - 1,  // Salt (exclude null terminator)
@@ -341,11 +348,11 @@ bool crypto_derive_session_key(const uint8_t* shared_secret, uint8_t* session_ke
         info, 0,                  // Info (empty)
         session_key_out, AES_KEY_SIZE  // Output key (16 bytes for AES-128)
     );
-    
+
     if (ret != 0) {
         return false;
     }
-    
+
     return true;
 #else
     (void)shared_secret; (void)session_key_out;
@@ -356,18 +363,18 @@ bool crypto_derive_session_key(const uint8_t* shared_secret, uint8_t* session_ke
 /**
  * Generates ephemeral P-256 keypair using ATECC608A.
  * Private key stored in volatile TempKey, public key returned.
- * 
+ *
  * @param ephemeral_pubkey_out Output buffer for 64-byte public key (X||Y)
  * @return true if generation succeeded, false otherwise
  */
 bool crypto_ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out) {
 #ifndef UNIT_TEST
     ATCA_STATUS status = atcab_genkey(ATCA_TEMPKEY_KEYID, ephemeral_pubkey_out);
-    
+
     if (status != ATCA_SUCCESS) {
         return false;
     }
-    
+
     return true;
 #else
     (void)ephemeral_pubkey_out;
@@ -378,7 +385,7 @@ bool crypto_ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out) {
 /**
  * Signs message with token's permanent private key (ATECC608A Slot 0).
  * Returns raw signature format (R||S, 64 bytes), not DER.
- * 
+ *
  * @param message Message to sign (will be hashed if not already 32 bytes)
  * @param message_len Length of message
  * @param signature_out Output buffer for 64-byte signature
@@ -393,14 +400,14 @@ bool crypto_ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_
     } else {
         compute_sha256(message, message_len, hash);
     }
-    
+
     // Sign using permanent private key in Slot 0
     ATCA_STATUS status = atcab_sign(SLOT_PERMANENT_PRIVKEY, hash, signature_out);
-    
+
     if (status != ATCA_SUCCESS) {
         return false;
     }
-    
+
     return true;
 #else
     (void)message; (void)message_len; (void)signature_out;
@@ -411,7 +418,7 @@ bool crypto_ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_
 /**
  * Reads host's permanent public key from ATECC608A Slot 8.
  * Reads 64 bytes in two 32-byte blocks (ATECC limitation).
- * 
+ *
  * @param host_pubkey_out Output buffer for 64-byte public key
  * @return true if read succeeded, false otherwise
  */
@@ -426,13 +433,13 @@ bool crypto_ecdh_read_host_pubkey(uint8_t* host_pubkey_out) {
             host_pubkey_out + (block * 32),
             32
         );
-        
+
         if (status != ATCA_SUCCESS) {
             print_dbg("ATECC error code: 0x%02X", status);
             return false;
         }
     }
-    
+
     return true;
 #else
     (void)host_pubkey_out;
@@ -470,13 +477,13 @@ bool crypto_set_host_pubkey(const uint8_t* host_pubkey) {
 
 int crypto_hex_to_bytes(const char* hex_str, uint8_t* out_bytes, size_t max_bytes) {
     if (!hex_str || !out_bytes) return -1;
-    
+
     size_t hex_len = strlen(hex_str);
     if (hex_len % 2 != 0) return -1; // Must be even number of hex chars
-    
+
     size_t byte_count = hex_len / 2;
     if (byte_count > max_bytes) return -1; // Not enough space in output buffer
-    
+
     for (size_t i = 0; i < byte_count; i++) {
         char hex_pair[3] = {hex_str[i*2], hex_str[i*2+1], '\0'};
         unsigned int byte;
@@ -485,27 +492,27 @@ int crypto_hex_to_bytes(const char* hex_str, uint8_t* out_bytes, size_t max_byte
         }
         out_bytes[i] = (uint8_t)byte;
     }
-    
+
     return (int)byte_count;
 }
 
 bool crypto_set_host_pubkey_hex(const char* hex_pubkey) {
     if (!hex_pubkey) return false;
-    
+
     // Expect exactly 128 hex characters (64 bytes)
     if (strlen(hex_pubkey) != 128) return false;
-    
+
     uint8_t host_pubkey[64];
     int bytes_converted = crypto_hex_to_bytes(hex_pubkey, host_pubkey, sizeof(host_pubkey));
     if (bytes_converted != 64) return false;
-    
+
     return crypto_set_host_pubkey(host_pubkey);
 }
 
 /**
  * Verifies ECDSA signature using ATECC608A hardware verification.
  * Uses host's permanent public key for verification.
- * 
+ *
  * @param message Message that was signed (will be hashed if not already 32 bytes)
  * @param message_len Length of message
  * @param signature 64-byte signature in raw format (R||S)
@@ -521,18 +528,18 @@ bool crypto_ecdh_verify_signature(const uint8_t* message, size_t message_len,
     } else {
         compute_sha256(message, message_len, hash);
     }
-    
+
     bool is_verified = false;
     ATCA_STATUS status = atcab_verify_extern(hash, signature, host_pubkey, &is_verified);
-    
+
     if (status != ATCA_SUCCESS) {
         return false;
     }
-    
+
     if (!is_verified) {
         return false;
     }
-    
+
     return true;
 #else
     (void)message; (void)message_len; (void)signature; (void)host_pubkey;
@@ -543,7 +550,7 @@ bool crypto_ecdh_verify_signature(const uint8_t* message, size_t message_len,
 /**
  * Computes ECDH shared secret using ephemeral private key in TempKey.
  * Uses ATECC608A hardware to perform P-256 ECDH operation.
- * 
+ *
  * @param peer_ephemeral_pubkey Peer's 64-byte ephemeral public key
  * */
 bool crypto_ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
@@ -553,11 +560,11 @@ bool crypto_ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
         peer_ephemeral_pubkey,
         shared_secret_out
     );
-    
+
     if (status != ATCA_SUCCESS) {
         return false;
     }
-    
+
     return true;
 #else
     (void)peer_ephemeral_pubkey; (void)shared_secret_out;
@@ -567,18 +574,18 @@ bool crypto_ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
 
 /**
  * Reads token's permanent public key from ATECC608A Slot 0.
- * 
+ *
  * @param token_pubkey_out Output buffer for 64-byte public key
  * @return true if read succeeded, false otherwise
  */
 bool crypto_ecdh_read_token_pubkey(uint8_t* token_pubkey_out) {
 #ifndef UNIT_TEST
     ATCA_STATUS status = atcab_get_pubkey(SLOT_PERMANENT_PRIVKEY, token_pubkey_out);
-    
+
     if (status != ATCA_SUCCESS) {
         return false;
     }
-    
+
     return true;
 #else
     (void)token_pubkey_out;
@@ -603,26 +610,26 @@ bool crypto_verify_integrity_challenge(const uint8_t* p_hash, uint32_t nonce,
 #ifndef UNIT_TEST
     // Create buffer to concatenate hash (32 bytes) + nonce (4 bytes) = 36 bytes
     uint8_t message[36];
-    
+
     // Copy hash to the beginning of the buffer
     memcpy(message, p_hash, 32);
-    
+
     // Copy nonce bytes after the hash
     // The nonce is a uint32_t, so we copy its 4 bytes
     memcpy(message + 32, &nonce, 4);
-    
+
     // The host signs SHA256(hash || nonce), so we need to hash the combined message
     uint8_t message_hash[32];
     compute_sha256(message, 36, message_hash);
-    
+
     // Verify the signature using ATECC's external verification
     ATCA_STATUS status = atcab_verify_extern(message_hash, p_signature, p_host_pubkey, p_result);
-    
+
     if (status != ATCA_SUCCESS) {
         print_dbg("ATECC error code: 0x%02X", status);
         return false;
     }
-    
+
     return true;
 #else
     (void)hash; (void)nonce; (void)signature; (void)host_pubkey; (void)result;
@@ -678,7 +685,7 @@ bool crypto_set_golden_hash(uint8_t* p_hash){
 /**
  * Checks if the token is provisioned.
  * Provisioned means the host's public key exists in the ATECC608A (Slot 8).
- * 
+ *
  * @return true if host public key is stored and valid, false otherwise.
  */
 bool crypto_is_token_provisioned(void) {
@@ -708,11 +715,11 @@ static uint8_t g_pending_golden_hash[32];
 // Background task for host pubkey operations
 static void host_pubkey_task(void *arg) {
     (void)arg;
-    
+
     // First, try to read existing host pubkey
     uint8_t host_pubkey[64];
     bool read_success = crypto_ecdh_read_host_pubkey(host_pubkey);
-    
+
     if (read_success) {
         // Convert to hex
         static const char HEX[] = "0123456789abcdef";
@@ -726,18 +733,18 @@ static void host_pubkey_task(void *arg) {
     } else {
         g_host_pubkey_read_failed = true;
     }
-    
+
     // Main loop for write operations
     while (1) {
         if (g_host_pubkey_write_pending) {
             g_host_pubkey_write_pending = false;
             g_host_pubkey_write_ready = false;
             g_host_pubkey_write_failed = false;
-            
+
             // Convert hex to bytes
             uint8_t new_host_pubkey[64];
             int bytes_converted = crypto_hex_to_bytes(g_pending_host_pubkey_hex, new_host_pubkey, sizeof(new_host_pubkey));
-            
+
             if (bytes_converted == 64) {
                 // Attempt to write (blocking operation safe in background task)
                 bool write_success = crypto_set_host_pubkey(new_host_pubkey);
@@ -754,7 +761,7 @@ static void host_pubkey_task(void *arg) {
                 g_host_pubkey_write_failed = true;
             }
         }
-        
+
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
@@ -784,20 +791,20 @@ bool crypto_request_host_pubkey_write(const char *hex_pubkey, bool *write_ready_
     if (!hex_pubkey || strlen(hex_pubkey) != 128) {
         return false;
     }
-    
+
     if (g_host_pubkey_write_pending) {
         // Write already in progress
         if (write_ready_out) *write_ready_out = false;
         if (write_failed_out) *write_failed_out = false;
         return false;
     }
-    
+
     // Copy hex string and start write operation
     strcpy(g_pending_host_pubkey_hex, hex_pubkey);
     g_host_pubkey_write_pending = true;
     g_host_pubkey_write_ready = false;
     g_host_pubkey_write_failed = false;
-    
+
     if (write_ready_out) *write_ready_out = g_host_pubkey_write_ready;
     if (write_failed_out) *write_failed_out = g_host_pubkey_write_failed;
     return true;
@@ -813,13 +820,13 @@ bool crypto_get_host_pubkey_write_status(bool *write_ready_out, bool *write_fail
 // Background task for golden hash operations (non-blocking)
 static void golden_hash_task(void *arg) {
     (void)arg;
-    
+
     while (1) {
         if (g_golden_hash_write_pending) {
             g_golden_hash_write_pending = false;
             g_golden_hash_write_ready = false;
             g_golden_hash_write_failed = false;
-            
+
             // Set golden hash (blocking operation safe in background task)
             bool write_success = crypto_set_golden_hash(g_pending_golden_hash);
             if (write_success) {
@@ -837,7 +844,7 @@ static void golden_hash_task(void *arg) {
                 g_golden_hash_write_failed = true;
             }
         }
-        
+
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
@@ -860,17 +867,17 @@ bool crypto_spawn_golden_hash_task_with_data(const uint8_t* golden_hash) {
     if (!golden_hash) {
         return false;
     }
-    
+
     if (g_golden_hash_write_pending) {
         return false;  // Already busy
     }
-    
+
     // Copy golden hash data and start write operation
     memcpy(g_pending_golden_hash, golden_hash, 32);
     g_golden_hash_write_pending = true;
     g_golden_hash_write_ready = false;
     g_golden_hash_write_failed = false;
-    
+
     return true;
 }
 
