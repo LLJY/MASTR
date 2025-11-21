@@ -21,7 +21,7 @@ from tpm2_pytss import (
     TPMS_NV_PUBLIC, TPMA_NV, TPMA_OBJECT, TPM2B_PUBLIC,
     TPMS_SCHEME_HASH
 )
-from tpm2_pytss.constants import TPM2_RH, TPM2_RC
+from tpm2_pytss.constants import TPM2_RH, TPM2_RC, TPM2_CAP
 from tpm2_pytss import TSS2_Exception
 
 from .crypto_interface import CryptoInterface
@@ -126,23 +126,49 @@ class TPM2Crypto(CryptoInterface):
         """Get host's permanent public key from the TPM2."""
         return self.host_permanent_pubkey_raw
 
+    def _nv_index_exists(self, nv_index: int) -> bool:
+        """
+        Check if NV index is already defined.
+
+        Args:
+            nv_index: TPM2 NV index to check
+
+        Returns:
+            True if NV index exists, False otherwise
+        """
+        try:
+            # Use get_capability to check for handle existence without triggering errors
+            # We ask for 1 handle starting at our NV index
+            more_data, cap_data = self.esapi.get_capability(
+                TPM2_CAP.HANDLES,
+                nv_index,
+                property_count=1
+            )
+
+            # Check if we got any handles back
+            if not cap_data.data.handles:
+                return False
+
+            # Check if the first returned handle matches our index
+            return cap_data.data.handles[0] == nv_index
+
+        except TSS2_Exception:
+            return False
+
     def set_token_permanent_pubkey(self, pubkey: bytes) -> bool:
         """Store token's permanent public key in TPM NVRAM."""
         if len(pubkey) != 64:
             return False
 
         try:
-            # Try to undefine the space first, in case it exists with wrong attributes
-            try:
-                # Convert NV index to ESYS_TR handle
+            # Check if NV index already exists and undefine it if so
+            if self._nv_index_exists(self.TOKEN_PUBKEY_NV_HANDLE):
+                # Convert NV index to ESYS_TR handle for undefine
                 nv_handle = self.esapi.tr_from_tpmpublic(self.TOKEN_PUBKEY_NV_HANDLE)
                 try:
                     self.esapi.nv_undefine_space(nv_handle, auth_handle=ESYS_TR.RH_OWNER)
                 finally:
                     self.esapi.tr_close(nv_handle)
-            except TSS2_Exception as e:
-                if e.rc != TPM2_RC.HANDLE:
-                    raise e
 
             # Define the NV space for the token's public key
             nv_public = TPMS_NV_PUBLIC(
