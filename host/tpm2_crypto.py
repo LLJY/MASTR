@@ -61,14 +61,20 @@ class TPM2Crypto(CryptoInterface):
             self.host_permanent_pubkey_raw = pubkey_point.x.buffer + pubkey_point.y.buffer
 
             # Load token permanent public key from NVRAM
-            self.token_permanent_pubkey_raw, _ = self.esapi.nv_read(
-                ESYS_TR.RH_OWNER, self.TOKEN_PUBKEY_NV_HANDLE, 64, 0
-            )
+            # Convert NV index to ESYS_TR handle
+            nv_handle = self.esapi.tr_from_tpmpublic(self.TOKEN_PUBKEY_NV_HANDLE)
+            try:
+                self.token_permanent_pubkey_raw, _ = self.esapi.nv_read(
+                    nv_handle, 64, offset=0, auth_handle=ESYS_TR.RH_OWNER
+                )
+            finally:
+                self.esapi.tr_close(nv_handle)
+
             if len(self.token_permanent_pubkey_raw) != 64:
                 return False
-            
+
             return True
-        
+
         except TSS2_Exception:
             return False
         except Exception:
@@ -128,7 +134,12 @@ class TPM2Crypto(CryptoInterface):
         try:
             # Try to undefine the space first, in case it exists with wrong attributes
             try:
-                self.esapi.nv_undefine_space(ESYS_TR.RH_OWNER, self.TOKEN_PUBKEY_NV_HANDLE)
+                # Convert NV index to ESYS_TR handle
+                nv_handle = self.esapi.tr_from_tpmpublic(self.TOKEN_PUBKEY_NV_HANDLE)
+                try:
+                    self.esapi.nv_undefine_space(nv_handle, auth_handle=ESYS_TR.RH_OWNER)
+                finally:
+                    self.esapi.tr_close(nv_handle)
             except TSS2_Exception as e:
                 if e.rc != TPM2_RC.HANDLE:
                     raise e
@@ -143,8 +154,13 @@ class TPM2Crypto(CryptoInterface):
             self.esapi.nv_define_space(ESYS_TR.RH_OWNER, None, nv_public)
 
             # Write the key to the NV space
-            self.esapi.nv_write(ESYS_TR.RH_OWNER, self.TOKEN_PUBKEY_NV_HANDLE, pubkey)
-            
+            # Convert NV index to ESYS_TR handle for writing
+            nv_handle = self.esapi.tr_from_tpmpublic(self.TOKEN_PUBKEY_NV_HANDLE)
+            try:
+                self.esapi.nv_write(nv_handle, pubkey, offset=0, auth_handle=ESYS_TR.RH_OWNER)
+            finally:
+                self.esapi.tr_close(nv_handle)
+
             self.token_permanent_pubkey_raw = pubkey
             return True
         except TSS2_Exception as e:
