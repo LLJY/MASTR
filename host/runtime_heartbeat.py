@@ -26,6 +26,7 @@ from .serial_handler import SerialHandler
 from .protocol import MessageType, Frame
 from .logger import Logger, Colors
 from .tpm2_crypto import TPM2Crypto
+from .config import GOLDEN_HASH_FILE
 
 
 class HeartbeatDaemon:
@@ -318,15 +319,28 @@ class HeartbeatDaemon:
             if len(frame.payload) == 4:
                 nonce = frame.payload
                 Logger.info(f"Received integrity nonce: {nonce.hex()}")
-                
-                # Respond with golden hash + signature
+
+                # Compute golden hash from configured file
                 import hashlib
-                test_data = b"h\0"
-                golden_hash = hashlib.sha256(test_data).digest()
+                try:
+                    with open(GOLDEN_HASH_FILE, 'rb') as f:
+                        file_data = f.read()
+                    golden_hash = hashlib.sha256(file_data).digest()
+                    Logger.info(f"Computed golden hash from {GOLDEN_HASH_FILE} ({len(file_data)} bytes)")
+                except FileNotFoundError:
+                    Logger.error(f"Golden hash file not found: {GOLDEN_HASH_FILE}")
+                    self._emergency_shutdown()
+                    return
+                except Exception as e:
+                    Logger.error(f"Error computing golden hash: {e}")
+                    self._emergency_shutdown()
+                    return
+
+                # Respond with golden hash + signature
                 message_to_sign = golden_hash + nonce
                 # Sign the message directly (golden_hash + nonce), don't hash again!
                 signature = self.crypto.sign_with_permanent_key(message_to_sign)
-                
+
                 response = golden_hash + signature
                 if self.handler.send_frame(MessageType.H2T_INTEGRITY_RESPONSE.value, response):
                     Logger.success("Integrity response sent")

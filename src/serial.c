@@ -48,6 +48,7 @@ void print_dbg(const char *format, ...);
 
 #ifndef UNIT_TEST
 // USB CDC RX callback - called from interrupt context
+__attribute__((hot, flatten))
 void tud_cdc_rx_cb(uint8_t itf) {
     (void)itf;
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
@@ -55,9 +56,9 @@ void tud_cdc_rx_cb(uint8_t itf) {
     // Directly notify the serial task (faster and more efficient than semaphore)
     // 
     // don't even send or recieve anything if protocol state is unprovisioned (0x10) or halt (0xFF)
-    if (serial_task_handle != NULL &&
-        g_protocol_state.current_state != PROTOCOL_STATE_UNPROVISIONED &&
-        g_protocol_state.current_state != 0xFF) {
+    if (likely(serial_task_handle != NULL &&
+               g_protocol_state.current_state != PROTOCOL_STATE_UNPROVISIONED &&
+               g_protocol_state.current_state != 0xFF)) {
         vTaskNotifyGiveFromISR(serial_task_handle, &xHigherPriorityTaskWoken);
         portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
     }
@@ -202,7 +203,7 @@ void serial_process_data(void)
 
 static void serial_process_complete_frame() {
     // Decrypt frame if protocol state requires it
-    uint8_t decrypted_frame[MAX_PAYLOAD_SIZE + 4];
+    uint8_t decrypted_frame[MAX_PAYLOAD_SIZE + 4] = {0};
     uint16_t decrypted_len = 0;
     
     if (!crypto_decrypt_frame_if_needed(g_frame_buffer, g_frame_len, decrypted_frame, &decrypted_len)) {
@@ -278,7 +279,7 @@ static void serial_process_complete_frame() {
     protocol_handle_validated_message(received_msg_type, payload, payload_len);
 }
 
-static void send_stuffed_byte(uint8_t c) {
+static inline void send_stuffed_byte(const uint8_t c) {
     switch(c){
         case SOF_BYTE:
             tud_cdc_write_char(ESC_BYTE);

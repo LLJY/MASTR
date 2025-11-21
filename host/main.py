@@ -64,6 +64,7 @@ from .tpm2_crypto import TPM2Crypto
 from .crypto_interface import CryptoInterface
 from .logger import Logger, Colors
 from .hybrid_key_storage import HybridKeyStorage
+from .config import GOLDEN_HASH_FILE
 
 
 class MASTRHost:
@@ -354,8 +355,12 @@ class MASTRHost:
             return True
         else:
             Logger.warning("Permanent keys not found!")
-            Logger.info("Production: Use HTML UI to provision token")
-            Logger.info("Debug options:")
+            Logger.info("Production: Use 'python -m host.provision' tool to provision host keys")
+            Logger.info("  1. Run: python -m host.provision --regenerate")
+            Logger.info("  2. Copy host pubkey to token HTML UI")
+            Logger.info("  3. Run: python -m host.provision --set-token-pubkey <hex>")
+            Logger.info("")
+            Logger.info("Debug options (deprecated):")
             Logger.info("  --provision              (HTTP API provisioning)")
             Logger.info("  --debug-override-provision (Serial debug protocol)")
             return False
@@ -758,20 +763,23 @@ class MASTRHost:
         nonce = self.received_nonce
         Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Received nonce: {nonce.hex()}")
         
-        # Load the golden hash we provisioned
-        Logger.step(11, "Loading golden hash...")
+        # Compute the golden hash from configured file
+        Logger.step(11, f"Computing golden hash from {GOLDEN_HASH_FILE}...")
         try:
-            with open('golden_hash.bin', 'rb') as f:
-                golden_hash = f.read()
+            with open(GOLDEN_HASH_FILE, 'rb') as f:
+                file_data = f.read()
+            golden_hash = hashlib.sha256(file_data).digest()
             if len(golden_hash) != 32:
-                Logger.substep(f"{Colors.RED}✗{Colors.RESET} Invalid golden hash length: {len(golden_hash)}")
+                Logger.substep(f"{Colors.RED}✗{Colors.RESET} Invalid hash length: {len(golden_hash)}")
                 return False
+            Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} File size: {len(file_data)} bytes")
             Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Golden hash: {golden_hash[:16].hex()}...")
         except FileNotFoundError:
-            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Golden hash file not found. Run with --provision first.")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Golden hash file not found: {GOLDEN_HASH_FILE}")
+            Logger.substep(f"   Ensure the file exists before running attestation")
             return False
         except Exception as e:
-            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Error loading golden hash: {e}")
+            Logger.substep(f"{Colors.RED}✗{Colors.RESET} Error computing golden hash: {e}")
             return False
         
         # Combine hash + nonce for signing
