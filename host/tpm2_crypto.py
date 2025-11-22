@@ -17,9 +17,9 @@ from tpm2_pytss import (
     ESAPI, TPM2_SU, TPM2_ECC, TPM2_ALG, ESYS_TR,
     TPMT_SIG_SCHEME, TPMT_ECC_SCHEME, TPMT_PUBLIC, TPMS_ECC_PARMS,
     TPM2B_DIGEST, TPMT_TK_HASHCHECK, TPM2B_SENSITIVE_CREATE,
-    TPMS_ECC_POINT, TPM2B_ECC_PARAMETER, 
-    TPMS_NV_PUBLIC, TPMA_NV, TPMA_OBJECT, TPM2B_PUBLIC,
-    TPMS_SCHEME_HASH
+    TPMS_ECC_POINT, TPM2B_ECC_PARAMETER,
+    TPMS_NV_PUBLIC, TPM2B_NV_PUBLIC, TPMA_NV, TPMA_OBJECT, TPM2B_PUBLIC,
+    TPMS_SCHEME_HASH, TPM2B_AUTH
 )
 from tpm2_pytss.constants import TPM2_RH, TPM2_RC, TPM2_CAP
 from tpm2_pytss import TSS2_Exception
@@ -56,17 +56,18 @@ class TPM2Crypto(CryptoInterface):
             self.host_permanent_key_handle = self.esapi.tr_from_tpmpublic(self.HOST_PERMANENT_KEY_HANDLE)
 
             # Read the public part of the key
-            _, pub, _, _ = self.esapi.read_public(self.host_permanent_key_handle)
+            pub, _, _ = self.esapi.read_public(self.host_permanent_key_handle)
             pubkey_point = pub.publicArea.unique.ecc
-            self.host_permanent_pubkey_raw = pubkey_point.x.buffer + pubkey_point.y.buffer
+            self.host_permanent_pubkey_raw = bytes(pubkey_point.x.buffer) + bytes(pubkey_point.y.buffer)
 
             # Load token permanent public key from NVRAM
             # Convert NV index to ESYS_TR handle
             nv_handle = self.esapi.tr_from_tpmpublic(self.TOKEN_PUBKEY_NV_HANDLE)
             try:
-                self.token_permanent_pubkey_raw, _ = self.esapi.nv_read(
-                    nv_handle, 64, offset=0, auth_handle=ESYS_TR.RH_OWNER
+                nv_data = self.esapi.nv_read(
+                    nv_handle, 64, offset=0, auth_handle=ESYS_TR.OWNER
                 )
+                self.token_permanent_pubkey_raw = bytes(nv_data)
             finally:
                 self.esapi.tr_close(nv_handle)
 
@@ -75,9 +76,15 @@ class TPM2Crypto(CryptoInterface):
 
             return True
 
-        except TSS2_Exception:
+        except TSS2_Exception as e:
+            print(f"TSS2 exception loading keys: {e}")
+            import traceback
+            traceback.print_exc()
             return False
-        except Exception:
+        except Exception as e:
+            print(f"Exception loading keys: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def generate_permanent_keypair(self) -> bool:
@@ -86,11 +93,11 @@ class TPM2Crypto(CryptoInterface):
             # Try to evict any existing key at the persistent handle
             try:
                 loaded_handle = self.esapi.tr_from_tpmpublic(self.HOST_PERMANENT_KEY_HANDLE)
-                self.esapi.evict_control(ESYS_TR.RH_OWNER, loaded_handle, self.HOST_PERMANENT_KEY_HANDLE)
+                self.esapi.evict_control(ESYS_TR.OWNER, loaded_handle, self.HOST_PERMANENT_KEY_HANDLE)
                 self.esapi.flush_context(loaded_handle)
-            except TSS2_Exception as e:
-                if e.rc != TPM2_RC.HANDLE:
-                    raise e
+            except (TSS2_Exception, Exception):
+                # Key doesn't exist yet, which is fine
+                pass
 
             # Create an ECC primary key
             in_sensitive = TPM2B_SENSITIVE_CREATE()
@@ -106,20 +113,28 @@ class TPM2Crypto(CryptoInterface):
             )
             
             key_handle, pub, _, _, _ = self.esapi.create_primary(
-                in_sensitive, in_public, primary_handle=ESYS_TR.RH_OWNER
+                in_sensitive, in_public, primary_handle=ESYS_TR.OWNER
             )
 
             # Make the key persistent
-            self.esapi.evict_control(ESYS_TR.RH_OWNER, key_handle, self.HOST_PERMANENT_KEY_HANDLE)
+            self.esapi.evict_control(ESYS_TR.OWNER, key_handle, self.HOST_PERMANENT_KEY_HANDLE)
 
             # Store raw public key
             pubkey_point = pub.publicArea.unique.ecc
-            self.host_permanent_pubkey_raw = pubkey_point.x.buffer + pubkey_point.y.buffer
+            self.host_permanent_pubkey_raw = bytes(pubkey_point.x.buffer) + bytes(pubkey_point.y.buffer)
 
-            self.esapi.flush_context(key_handle)
+            # Try to flush the transient handle (may fail if already evicted, which is fine)
+            try:
+                self.esapi.flush_context(key_handle)
+            except (TSS2_Exception, Exception):
+                pass
+
             return True
 
-        except Exception:
+        except Exception as e:
+            print(f"Exception during keypair generation: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def get_host_permanent_pubkey(self) -> Optional[bytes]:
@@ -166,24 +181,28 @@ class TPM2Crypto(CryptoInterface):
                 # Convert NV index to ESYS_TR handle for undefine
                 nv_handle = self.esapi.tr_from_tpmpublic(self.TOKEN_PUBKEY_NV_HANDLE)
                 try:
-                    self.esapi.nv_undefine_space(nv_handle, auth_handle=ESYS_TR.RH_OWNER)
+                    self.esapi.nv_undefine_space(nv_handle, auth_handle=ESYS_TR.OWNER)
                 finally:
                     self.esapi.tr_close(nv_handle)
 
             # Define the NV space for the token's public key
-            nv_public = TPMS_NV_PUBLIC(
-                nvIndex=self.TOKEN_PUBKEY_NV_HANDLE,
-                nameAlg=TPM2_ALG.SHA256,
-                attributes=TPMA_NV.OWNERWRITE | TPMA_NV.OWNERREAD | TPMA_NV.AUTHREAD,
-                dataSize=64
+            # Using TPM2B_NV_PUBLIC wrapper for TPMS_NV_PUBLIC
+            nv_public = TPM2B_NV_PUBLIC(
+                nvPublic=TPMS_NV_PUBLIC(
+                    nvIndex=self.TOKEN_PUBKEY_NV_HANDLE,
+                    nameAlg=TPM2_ALG.SHA256,
+                    attributes=TPMA_NV.OWNERWRITE | TPMA_NV.OWNERREAD | TPMA_NV.AUTHREAD,
+                    dataSize=64
+                )
             )
-            self.esapi.nv_define_space(ESYS_TR.RH_OWNER, None, nv_public)
+            # Parameter order for system package v2.3.0: auth, public_info, auth_handle
+            self.esapi.nv_define_space(TPM2B_AUTH(), nv_public, ESYS_TR.OWNER)
 
             # Write the key to the NV space
             # Convert NV index to ESYS_TR handle for writing
             nv_handle = self.esapi.tr_from_tpmpublic(self.TOKEN_PUBKEY_NV_HANDLE)
             try:
-                self.esapi.nv_write(nv_handle, pubkey, offset=0, auth_handle=ESYS_TR.RH_OWNER)
+                self.esapi.nv_write(nv_handle, pubkey, offset=0, auth_handle=ESYS_TR.OWNER)
             finally:
                 self.esapi.tr_close(nv_handle)
 
@@ -217,12 +236,12 @@ class TPM2Crypto(CryptoInterface):
             key_handle, pub, _, _, _ = self.esapi.create_primary(
                 in_sensitive,
                 in_public,
-                primary_handle=ESYS_TR.RH_OWNER
+                primary_handle=ESYS_TR.OWNER
             )
 
             # Extract raw public key
             pubkey_point = pub.publicArea.unique.ecc
-            pubkey_raw = pubkey_point.x.buffer + pubkey_point.y.buffer
+            pubkey_raw = bytes(pubkey_point.x.buffer) + bytes(pubkey_point.y.buffer)
 
             # Return both public key and handle (don't flush yet, needed for ECDH)
             return (pubkey_raw, key_handle)
@@ -256,8 +275,8 @@ class TPM2Crypto(CryptoInterface):
             )
 
             # Convert signature to raw format (R||S, 64 bytes)
-            r = signature.signature.ecdsa.signatureR.buffer
-            s = signature.signature.ecdsa.signatureS.buffer
+            r = bytes(signature.signature.ecdsa.signatureR.buffer)
+            s = bytes(signature.signature.ecdsa.signatureS.buffer)
             return r + s
 
         except Exception:
@@ -304,12 +323,12 @@ class TPM2Crypto(CryptoInterface):
             peer_point = TPMS_ECC_POINT(x=x, y=y)
 
             # Compute shared secret using ECDH
-            z_point, _ = self.esapi.ecdh_zgen(ephemeral_privkey, peer_point)
-            
+            z_point = self.esapi.ecdh_zgen(ephemeral_privkey, peer_point)
+
             # Clean up ephemeral key after use
             self.esapi.flush_context(ephemeral_privkey)
 
-            return z_point.x.buffer
+            return bytes(z_point.x.buffer)
 
         except Exception:
             return None

@@ -11,10 +11,10 @@ Configuration values for the MASTR protocol implementation.
 #
 # Production: Should be a critical boot file (e.g., kernel image)
 # Development: Can be any test file
-GOLDEN_HASH_FILE = "/boot/vmlinuz"
+# GOLDEN_HASH_FILE = "/boot/vmlinuz"
 
-# Alternative for testing (uncomment to use):
-# GOLDEN_HASH_FILE = "/boot/testfile"
+# Testing configuration
+GOLDEN_HASH_FILE = "./testfile"
 
 # Serial Port Configuration
 # Default serial port for token communication

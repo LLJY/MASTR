@@ -45,6 +45,7 @@ class HeartbeatDaemon:
     def __init__(
         self,
         port: str,
+        crypto,
         interval: int = 5,
         timeout_threshold: int = 3,
         check_lkrg: bool = True,
@@ -52,9 +53,10 @@ class HeartbeatDaemon:
     ):
         """
         Initialize heartbeat daemon.
-        
+
         Args:
             port: Serial port (/dev/ttyACM0)
+            crypto: Crypto backend (NaiveCrypto or TPM2Crypto)
             interval: Heartbeat interval in seconds
             timeout_threshold: Max consecutive timeouts before emergency shutdown
             check_lkrg: Enable LKRG integrity monitoring
@@ -65,23 +67,23 @@ class HeartbeatDaemon:
         self.timeout_threshold = timeout_threshold
         self.check_lkrg = check_lkrg
         self.debug_no_shutdown = debug_no_shutdown
-        
+
         self.running = False
         self.consecutive_timeouts = 0
         self.session_key: Optional[bytes] = None
-        
+
         # Re-attestation support
         self.token_ecdh_share: Optional[bytes] = None
         self.reattestation_requested = threading.Event()
         self.boot_ok_received = threading.Event()  # Signal re-attestation complete
         self.reattestation_in_progress = False  # Flag to pause heartbeats during re-attestation
-        
+
         # Threading synchronization
         self.ack_event = threading.Event()
         self.handler: Optional[SerialHandler] = None
-        
-        # Crypto handler for encryption (with TPM2 support)
-        self.crypto = NaiveCrypto()
+
+        # Crypto handler for encryption (NaiveCrypto or TPM2Crypto)
+        self.crypto = crypto
         
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -625,19 +627,29 @@ Examples:
     )
     
     args = parser.parse_args()
-    
+
     # Set verbose mode in logger
     Logger.verbose = args.verbose
-    
+
+    # Initialize crypto backend (default to TPM2 for production)
+    try:
+        crypto = TPM2Crypto()
+        Logger.info("Using TPM2Crypto backend")
+    except Exception as e:
+        Logger.warning(f"Failed to initialize TPM2Crypto: {e}")
+        Logger.warning("Falling back to NaiveCrypto (file-based)")
+        crypto = NaiveCrypto()
+
     # Create and start daemon
     daemon = HeartbeatDaemon(
         port=args.port,
+        crypto=crypto,
         interval=args.interval,
         timeout_threshold=args.timeout_threshold,
         check_lkrg=not args.no_lkrg,
         debug_no_shutdown=args.debug_no_shutdown
     )
-    
+
     return daemon.start()
 
 
