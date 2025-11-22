@@ -141,8 +141,15 @@ add_link_options(
 # Don't enable LTO globally - we'll enable it per-target to avoid library issues
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION FALSE)
 
-# Enable DEBUG mode for all builds
-add_compile_definitions(DEBUG)
+# DEBUG mode control (defaults to OFF for production builds)
+# Set -DENABLE_DEBUG=ON to enable debug logging and serial provisioning
+option(ENABLE_DEBUG "Enable debug logging and serial provisioning" OFF)
+if(ENABLE_DEBUG)
+    add_compile_definitions(DEBUG)
+    message(STATUS "DEBUG mode enabled - debug logging and serial provisioning active")
+else()
+    message(STATUS "PRODUCTION mode - debug features disabled")
+endif()
 
 if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
     add_compile_options(-Wno-maybe-uninitialized)
