@@ -1,5 +1,4 @@
 #include "protocol.h"
-#include "projdefs.h"
 #include "serial.h"
 #include "crypto.h"
 #include "constants.h"
