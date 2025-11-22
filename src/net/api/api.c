@@ -223,7 +223,7 @@ static void status_handler(struct tcp_pcb *pcb, const char *request) {
     API_DBG("[API] got uptime: %u\n", (unsigned)s);
     
     API_DBG("[API] checking provisioning state\n");
-    bool provisioned = (g_protocol_state.current_state == 0x40);
+    bool provisioned = (g_protocol_state.current_state != PROTOCOL_STATE_UNPROVISIONED);
     API_DBG("[API] provisioned: %d\n", provisioned);
     
     char body[256];

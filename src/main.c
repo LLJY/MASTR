@@ -75,13 +75,13 @@ void watchdog_task(void *params) {
         if (current_time_ms - last_heap_check > WATCHDOG_HEAP_CHECK_INTERVAL_MS) {
             size_t free_heap = xPortGetFreeHeapSize();
             size_t min_free_ever = xPortGetMinimumEverFreeHeapSize();
-            
-            // Warning if free heap drops below 4KB or minimum ever below 2KB
+
+            // Only log on warnings (not every cycle - saves memory)
             if (free_heap < HEAP_WARNING_THRESHOLD_BYTES || min_free_ever < HEAP_MIN_EVER_THRESHOLD_BYTES) {
                 heap_warning_count++;
-                print_dbg("WATCHDOG: Low memory warning - Free: %u bytes, Min ever: %u bytes (count: %u)\n", 
+                print_dbg("WATCHDOG: Low memory - Free: %u bytes, Min ever: %u bytes (count: %u)\n",
                     (unsigned)free_heap, (unsigned)min_free_ever, heap_warning_count);
-                
+
                 // If persistent memory issues, force garbage collection
                 if (heap_warning_count > HEAP_WARNING_PERSISTENT_COUNT) {
                     print_dbg("WATCHDOG: Forcing task cleanup due to persistent memory pressure\n");
@@ -90,7 +90,7 @@ void watchdog_task(void *params) {
             } else if (heap_warning_count > 0) {
                 heap_warning_count = 0; // Reset counter when memory recovers
             }
-            
+
             last_heap_check = current_time_ms;
         }
         
@@ -284,14 +284,14 @@ int main() {
         while (1) { tight_loop_contents(); }
     }
     
-    // Create the enhanced watchdog task (HIGHEST priority for system monitoring)
+    // Create the enhanced watchdog task (High priority, but below WiFi background to prevent lwIP deadlock)
     TaskHandle_t watchdog_task_handle;
     BaseType_t watchdog_result = xTaskCreate(
         watchdog_task,
         "Watchdog",                         // Task name
         DEFAULT_STACK_SIZE + 256,           // Extra stack for monitoring logic
         NULL,                               // Parameters
-        28,                                 // Highest user priority (below timer service)
+        23,                                 // Priority 23 (below WiFi BG at 24, above crypto at 20)
         &watchdog_task_handle               // Task handle
     );
     
@@ -308,10 +308,27 @@ int main() {
             20,                         // Priority 20
             NULL
         );
-    
+
     if (init_result != pdPASS) {
         print_dbg("FATAL: Failed to create App Init task\n");
         while (1) { tight_loop_contents(); }
+    }
+
+    // CPU monitoring task (updates cached CPU percentage in background)
+    // Heap increased to 128KB to accommodate task overhead (~8.4KB)
+    TaskHandle_t cpu_monitor_task_handle;
+    BaseType_t cpu_result = xTaskCreate(
+        cpu_monitor_task,
+        "CPU-Mon",
+        DEFAULT_STACK_SIZE,
+        NULL,
+        5,  // Low priority - just background monitoring
+        &cpu_monitor_task_handle
+    );
+
+    if (cpu_result != pdPASS) {
+        print_dbg("WARNING: Failed to create CPU monitor task - CPU stats will be unavailable\n");
+        // Non-fatal, system can continue without CPU monitoring
     }
 
     // Start the FreeRTOS scheduler

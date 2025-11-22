@@ -29,10 +29,15 @@ void vApplicationIdleHook(void) {
     }
 }
 
-// Return CPU usage percent (integer 0-100) using FreeRTOS run-time stats.
+// Cached CPU percentage (updated by background task, read by HTTP handlers)
+// Volatile to ensure thread-safe reads from HTTP handler context
+static volatile uint32_t g_cached_cpu_percent = 0;
+
+// Internal function: Calculate CPU usage percent (integer 0-100) using FreeRTOS run-time stats.
 // Accurate path: sum per-task run time counters and derive busy = total - idle.
 // Uses a minimum delta window to avoid noisy tiny samples.
-uint32_t cpu_get_percent(void)
+// WARNING: Calls uxTaskGetSystemState() which suspends scheduler - do NOT call from HTTP handlers!
+static uint32_t cpu_calculate_percent(void)
 {
     #define CPU_MON_MAX_TASKS 48
     static TaskStatus_t stats_buf[CPU_MON_MAX_TASKS];
@@ -107,6 +112,29 @@ uint32_t cpu_get_percent(void)
     uint32_t percent = (busy * 100U + (dTotal / 2U)) / dTotal; // rounded
     last_percent = percent;
     return percent;
+}
+
+// Public API: Get cached CPU percentage (safe to call from any context)
+// Returns cached value updated by background task, avoiding scheduler suspension in HTTP context
+uint32_t cpu_get_percent(void) {
+    return g_cached_cpu_percent;
+}
+
+// Background task: Updates cached CPU percentage every 500ms
+// This prevents calling uxTaskGetSystemState() from HTTP handler context (which can deadlock lwIP)
+void cpu_monitor_task(void *params) {
+    (void)params;
+
+    while (true) {
+        // Calculate CPU percentage in a safe task context (not from HTTP callback)
+        uint32_t new_percent = cpu_calculate_percent();
+
+        // Update cached value (volatile ensures atomic write)
+        g_cached_cpu_percent = new_percent;
+
+        // Update every 500ms
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
 }
 
 // Provide the runtime counter for FreeRTOS stats without including Pico headers in FreeRTOSConfig.h

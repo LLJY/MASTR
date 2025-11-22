@@ -61,9 +61,15 @@ static void send_response(struct tcp_pcb *pcb, const char *status, const char *c
         status, content_type, (int)strlen(body));
 
     if (tcp_write(pcb, header, header_len, TCP_WRITE_FLAG_COPY) != ERR_OK) {
-        tcp_abort(pcb); return; }
+        tcp_abort(pcb);
+        reset_state();
+        return;
+    }
     if (tcp_write(pcb, body, strlen(body), TCP_WRITE_FLAG_COPY) != ERR_OK) {
-        tcp_abort(pcb); return; }
+        tcp_abort(pcb);
+        reset_state();
+        return;
+    }
     tcp_output(pcb);
     g_state.close_when_sent = true;
 }
@@ -85,14 +91,18 @@ static void handle_request(struct tcp_pcb *pcb, char *request) {
     
     // Handle CORS preflight OPTIONS requests
     if (strcmp(method, "OPTIONS") == 0) {
-        const char *cors_response = 
+        const char *cors_response =
             "HTTP/1.1 204 No Content\r\n"
             "Access-Control-Allow-Origin: *\r\n"
             "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
             "Access-Control-Allow-Headers: Content-Type, Authorization\r\n"
             "Access-Control-Max-Age: 86400\r\n"
             "\r\n";
-        tcp_write(pcb, cors_response, strlen(cors_response), TCP_WRITE_FLAG_COPY);
+        if (tcp_write(pcb, cors_response, strlen(cors_response), TCP_WRITE_FLAG_COPY) != ERR_OK) {
+            tcp_abort(pcb);
+            reset_state();
+            return;
+        }
         tcp_output(pcb);
         g_state.close_when_sent = true;
         return;
@@ -114,12 +124,35 @@ static void handle_request(struct tcp_pcb *pcb, char *request) {
 }
 
 static err_t http_close(struct tcp_pcb *pcb) {
-    reset_state();
-    return tcp_close(pcb);
+    if (!pcb) return ERR_OK;
+
+    // Clear all callbacks BEFORE closing to prevent use-after-free
+    tcp_arg(pcb, NULL);
+    tcp_recv(pcb, NULL);
+    tcp_sent(pcb, NULL);
+    tcp_err(pcb, NULL);
+
+    // Try to close the connection
+    err_t close_err = tcp_close(pcb);
+
+    // Only reset state if close succeeded OR if we need to abort
+    if (close_err == ERR_OK) {
+        reset_state();
+        return ERR_OK;
+    } else {
+        // Close failed (likely ERR_MEM) - abort the connection
+        tcp_abort(pcb);
+        reset_state();
+        return ERR_ABRT;
+    }
 }
 
 static void http_err(void *arg, err_t err) {
-    (void)arg; (void)err; reset_state(); }
+    (void)arg; (void)err;
+    // Connection already closed by lwIP, just reset our state
+    // DO NOT call tcp_close() or tcp_abort() here - PCB is already freed
+    reset_state();
+}
 
 static err_t http_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
     (void)arg; (void)len;
@@ -150,19 +183,24 @@ static err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err
 
 static err_t http_accept(void *arg, struct tcp_pcb *client_pcb, err_t err) {
     (void)arg; (void)err;
-    if (g_state.in_use) { 
-        tcp_close(client_pcb); 
-        return ERR_OK; 
+    if (g_state.in_use) {
+        tcp_close(client_pcb);
+        return ERR_OK;
     }
-    
-    // Track new connection
-    http_connection_opened();
-    
-    g_state.in_use = true; g_state.request_len = 0; g_state.close_when_sent = false; g_state.request[0] = '\0';
+
+    g_state.in_use = true;
+    g_state.request_len = 0;
+    g_state.close_when_sent = false;
+    g_state.request[0] = '\0';
+
     tcp_arg(client_pcb, &g_state);
     tcp_recv(client_pcb, http_recv);
     tcp_err(client_pcb, http_err);
     tcp_sent(client_pcb, http_sent);
+
+    // Track new connection AFTER setup succeeds (prevents race condition)
+    http_connection_opened();
+
     return ERR_OK;
 }
 
@@ -179,7 +217,8 @@ void http_server_init(void) {
 // HTTP Server Monitoring Functions
 // ============================================================================
 
-static uint32_t g_active_connections = 0;
+// Volatile to ensure thread-safe reads from high-priority watchdog task
+static volatile uint32_t g_active_connections = 0;
 
 static void http_connection_opened(void) {
     g_active_connections++;

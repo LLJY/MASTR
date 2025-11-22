@@ -1234,14 +1234,14 @@
 
         function pollHostKeyStatus(maxAttempts = 30) {
             let attempts = 0;
-            
+
             function poll() {
                 attempts++;
-                
+
                 if (attempts > maxAttempts) {
                     throw new Error('Host public key write timeout');
                 }
-                
+
                 return fetchWithAuth('http://192.168.4.1/api/provision/host_pubkey/status')
                     .then(response => {
                         if (!response.ok) {
@@ -1251,23 +1251,23 @@
                     })
                     .then(data => {
                         console.log(`[Poll ${attempts}] Host key status:`, data.status);
-                        
+
                         if (data.status === 'ready') {
                             console.log('Host key write successful!');
                             return Promise.resolve();
                         } else if (data.status === 'failed') {
                             throw new Error('Host public key write failed on device');
                         } else if (data.status === 'pending') {
-                            // Still pending, retry with increasing delay
-                            const delay = Math.min(100 + (attempts * 50), 500);
-                            console.log(`Host key still pending, retrying in ${delay}ms...`);
+                            // Still pending, retry with increasing delay (reduced frequency to avoid overwhelming server)
+                            const delayMs = Math.min(500 + (attempts * 100), 2000);
+                            console.log(`Host key still pending, retrying in ${delayMs}ms...`);
                             return new Promise(resolve => {
-                                setTimeout(() => poll().then(resolve), delay);
+                                setTimeout(() => poll().then(resolve), delayMs);
                             });
                         } else {
-                            // Unknown status, retry
+                            // Unknown status, retry with reasonable delay
                             return new Promise(resolve => {
-                                setTimeout(() => poll().then(resolve), 200);
+                                setTimeout(() => poll().then(resolve), 500);
                             });
                         }
                     })
@@ -1275,14 +1275,14 @@
                         if (attempts < maxAttempts) {
                             console.log(`Poll error (attempt ${attempts}):`, error.message);
                             return new Promise(resolve => {
-                                setTimeout(() => poll().then(resolve), 200);
+                                setTimeout(() => poll().then(resolve), 500);
                             });
                         } else {
                             throw error;
                         }
                     });
             }
-            
+
             return poll();
         }
 
@@ -1320,14 +1320,14 @@
 
         function pollGoldenHashStatus(maxAttempts = 30) {
             let attempts = 0;
-            
+
             function poll() {
                 attempts++;
-                
+
                 if (attempts > maxAttempts) {
                     throw new Error('Golden hash write timeout');
                 }
-                
+
                 return fetchWithAuth('http://192.168.4.1/api/provision/golden_hash/status')
                     .then(response => {
                         if (!response.ok) {
@@ -1337,23 +1337,23 @@
                     })
                     .then(data => {
                         console.log(`[Poll ${attempts}] Golden hash status:`, data.status);
-                        
+
                         if (data.status === 'ready' || data.status === 'success') {
                             console.log('Golden hash write successful!');
                             return Promise.resolve();
                         } else if (data.status === 'failed' || data.status === 'error') {
                             throw new Error('Golden hash write failed on device');
                         } else if (data.status === 'pending' || data.status === 'processing') {
-                            // Still pending, retry with increasing delay
-                            const delay = Math.min(100 + (attempts * 50), 500);
-                            console.log(`Golden hash still processing, retrying in ${delay}ms...`);
+                            // Still pending, retry with increasing delay (reduced frequency to avoid overwhelming server)
+                            const delayMs = Math.min(500 + (attempts * 100), 2000);
+                            console.log(`Golden hash still processing, retrying in ${delayMs}ms...`);
                             return new Promise(resolve => {
-                                setTimeout(() => poll().then(resolve), delay);
+                                setTimeout(() => poll().then(resolve), delayMs);
                             });
                         } else {
-                            // Unknown status, retry
+                            // Unknown status, retry with reasonable delay
                             return new Promise(resolve => {
-                                setTimeout(() => poll().then(resolve), 200);
+                                setTimeout(() => poll().then(resolve), 500);
                             });
                         }
                     })
@@ -1361,14 +1361,14 @@
                         if (attempts < maxAttempts) {
                             console.log(`Poll error (attempt ${attempts}):`, error.message);
                             return new Promise(resolve => {
-                                setTimeout(() => poll().then(resolve), 200);
+                                setTimeout(() => poll().then(resolve), 500);
                             });
                         } else {
                             throw error;
                         }
                     });
             }
-            
+
             return poll();
         }
 
@@ -1389,6 +1389,11 @@
             return `${secs}s`;
         }
 
+        // Helper function to add delay between requests
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
         async function refreshStatus() {
             if (!currentBearerToken) {
                 console.warn('Bearer token missing - refresh skipped');
@@ -1400,6 +1405,7 @@
             refreshInProgress = true;
 
             try {
+                // Request 1: Status (SEQUENTIAL with delays to avoid overwhelming single-connection server)
                 try {
                     const response = await fetchWithAuth('http://192.168.4.1/api/status');
                     const data = await response.json();
@@ -1421,7 +1427,7 @@
 
                     const configured = !!data.wifi_configured;
                     document.getElementById('wifiConfigured').textContent = configured ? 'Yes' : 'No';
-                    
+
                     const wifiIndicator = document.getElementById('wifiIndicator');
                     if (configured) {
                         wifiIndicator.className = 'status-indicator ok';
@@ -1438,6 +1444,10 @@
                     showMessage('Failed to fetch status', 'error');
                 }
 
+                // 200ms delay before next request (single-connection HTTP server)
+                await delay(200);
+
+                // Request 2: Network
                 try {
                     const response = await fetchWithAuth('http://192.168.4.1/api/network');
                     const data = await response.json();
@@ -1469,6 +1479,9 @@
                     document.getElementById('networkStatus').textContent = 'Network Error';
                 }
 
+                await delay(200);
+
+                // Request 3: RAM
                 try {
                     const response = await fetchWithAuth('http://192.168.4.1/api/ram');
                     const data = await response.json();
@@ -1489,12 +1502,15 @@
                     console.error('Error fetching RAM info:', error);
                 }
 
+                await delay(200);
+
+                // Request 4: CPU (re-enabled after heap increase to 128KB)
                 try {
                     const response = await fetchWithAuth('http://192.168.4.1/api/cpu');
                     const data = await response.json();
                     const cpuPercent = data.cpu_percent ?? 0;
                     document.getElementById('cpuDisplay').textContent = cpuPercent.toFixed(1) + '%';
-                    
+
                     const cpuDisplay = document.getElementById('cpuDisplay');
                     if (cpuPercent > 80) {
                         cpuDisplay.style.color = '#ff7875';
@@ -1505,8 +1521,12 @@
                     }
                 } catch (error) {
                     console.error('Error fetching CPU info:', error);
+                    document.getElementById('cpuDisplay').textContent = '--';
                 }
 
+                await delay(200);
+
+                // Request 5: Temperature
                 try {
                     const response = await fetchWithAuth('http://192.168.4.1/api/temp');
                     const data = await response.json();
@@ -1575,7 +1595,7 @@
             }
         });
 
-        // Refresh every 5 seconds
+        // Refresh every 5 seconds (serialized requests with delays prevent overwhelming server)
         window.addEventListener('load', async () => {
             await initializeTokenAuth();
             refreshStatus();
