@@ -38,6 +38,7 @@
 static bool g_claimed = false;
 // Cache the last generated password so we can optionally re-display or debug
 static char g_last_psk[33] = ""; // 32 chars + NUL
+static const uint32_t CLAIM_GRACE_MS = 750; // client sees password then AP restarts
 
 // Bearer token authentication state
 static char g_bearer_token[65] = ""; // 64 hex chars + NUL (256-bit token)
@@ -48,19 +49,19 @@ static bool g_bearer_token_generated = false;
 // One-shot timer callback to restart AP with new password
 // Worker task to perform AP restart in a normal task context (not timer task)
 static void ap_restart_task(void *arg) {
-    (void)arg;
-    // Small delay to ensure response left the device stack
-    vTaskDelay(pdMS_TO_TICKS(50));
+    uint32_t delay_ms = (uint32_t)(uintptr_t)arg;
+    if (delay_ms < 50) {
+        delay_ms = 50; // always give the TCP stack a moment to flush
+    }
+    vTaskDelay(pdMS_TO_TICKS(delay_ms));
     if (g_last_psk[0] != '\0') {
-        wifi_ap_rotate_password(g_last_psk);
+        print_dbg("[API] AP restart task: rotating password\n");
+        bool ok = wifi_ap_rotate_password(g_last_psk);
+        print_dbg("[API] AP restart task: rotate result=%d\n", ok ? 1 : 0);
+    } else {
+        print_dbg("[API] AP restart task: no cached PSK, skipping rotate\n");
     }
     vTaskDelete(NULL);
-}
-
-static void ap_rotate_timer_cb(TimerHandle_t xTimer) {
-    (void)xTimer;
-    // Create detached worker to do the heavy lifting (deinit/init may block)
-    xTaskCreate(ap_restart_task, "ap_rst", 1024, NULL, tskIDLE_PRIORITY + 2, NULL);
 }
 
 // Generate a random WPA2 passphrase (length between 16 and 24) using get_rand_32()
@@ -137,7 +138,7 @@ bool http_validate_bearer_token(const char *request) {
 // Claim handler: if not claimed, generate password, respond, then schedule AP restart.
 static void claim_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
-    API_DBG("[API] claim_handler called\n");
+    print_dbg("[API] claim_handler called (claimed=%d)\n", g_claimed ? 1 : 0);
     if (g_claimed) {
         http_send_json(pcb, 409, "{\"error\":\"already_claimed\"}");
         return;
@@ -145,20 +146,20 @@ static void claim_handler(struct tcp_pcb *pcb, const char *request) {
     generate_random_psk(g_last_psk, sizeof(g_last_psk));
     g_claimed = true;
 
-    // Create one-shot timer to rotate AP after grace period so response is delivered first.
-    const uint32_t GRACE_MS = 750; // client sees password then AP restarts
-    TimerHandle_t t = xTimerCreate("ap_rot", pdMS_TO_TICKS(GRACE_MS), pdFALSE, NULL, ap_rotate_timer_cb);
-    if (t) {
-        xTimerStart(t, 0);
-    } else {
-        // Fallback: rotate immediately
-        ap_rotate_timer_cb(NULL);
+    // Spawn a one-shot worker to rotate AP after grace period so response is delivered first.
+    if (xTaskCreate(ap_restart_task, "ap_rst", 2048, (void *)(uintptr_t)CLAIM_GRACE_MS, tskIDLE_PRIORITY + 2, NULL) != pdPASS) {
+        print_dbg("[API] claim: failed to spawn ap_rst task; rotating synchronously\n");
+        // Last-resort fallback: rotate inline (may briefly block)
+        if (g_last_psk[0] != '\0') {
+            bool ok = wifi_ap_rotate_password(g_last_psk);
+            print_dbg("[API] claim: inline rotate result=%d\n", ok ? 1 : 0);
+        }
     }
 
     char body[160];
     int n = snprintf(body, sizeof(body),
                      "{\"status\":\"ok\",\"ssid\":\"%s\",\"new_password\":\"%s\",\"reconnect_in_ms\":%u}",
-                     wifi_ap_get_config()->ssid, g_last_psk, GRACE_MS);
+                     wifi_ap_get_config()->ssid, g_last_psk, CLAIM_GRACE_MS);
     (void)n;
     http_send_json(pcb, 200, body);
 }
