@@ -6,6 +6,11 @@
 
 // --- Mock FreeRTOS Types ---
 typedef void* TaskHandle_t;
+typedef void (*TaskFunction_t)(void*);
+typedef uint32_t TickType_t;
+typedef long BaseType_t;
+#define pdMS_TO_TICKS(ms) (ms)
+#define tskIDLE_PRIORITY 0
 
 #include "protocol.h" // <-- Include after defining TaskHandle_t
 
@@ -37,5 +42,15 @@ void pico_delay_ms(uint32_t ms);
 void tud_cdc_write_char(char c);
 uint32_t tud_cdc_write_available(void);
 void tud_cdc_write_flush(void);
+
+// FreeRTOS functions
+BaseType_t xTaskCreate(TaskFunction_t pvTaskCode, const char *const pcName,
+                       uint16_t usStackDepth, void *pvParameters,
+                       uint32_t uxPriority, TaskHandle_t *pxCreatedTask);
+void vTaskDelay(TickType_t xTicksToDelay);
+void vTaskDelete(TaskHandle_t xTaskToDelete);
+
+// Debug printing
+void print_dbg(const char *format, ...);
 
 #endif // MOCK_PICO_SDK_H

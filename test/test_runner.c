@@ -63,6 +63,57 @@ void test_integrity_validates_with_different_nonce(void);
 void test_integrity_zero_hash_detection(void);
 void test_integrity_all_ones_hash_detection(void);
 
+// Forward declarations - Crypto Tests (NEW - Group A: 15 tests)
+void test_aes_gcm_encrypt_decrypt_roundtrip(void);
+void test_aes_gcm_decrypt_with_wrong_key(void);
+void test_aes_gcm_decrypt_with_tampered_tag(void);
+void test_aes_gcm_encrypt_iv_uniqueness(void);
+void test_ecdh_shared_secret_computation(void);
+void test_ecdh_ephemeral_key_generation(void);
+void test_ecdh_key_derivation_hkdf(void);
+void test_ecdsa_sign_with_permanent_key(void);
+void test_ecdsa_verify_valid_signature(void);
+void test_ecdsa_reject_invalid_signature(void);
+void test_atecc_read_host_pubkey_slot8(void);
+void test_atecc_write_host_pubkey_slot8(void);
+void test_atecc_read_golden_hash_slot8_block2(void);
+void test_atecc_write_golden_hash_slot8_block2(void);
+void test_compute_sha256_consistency(void);
+
+// Forward declarations - Protocol Re-Attestation Tests (NEW - Group B: 8 tests)
+void test_reattestation_full_cycle_0x40_to_0x40(void);
+void test_reattestation_generates_new_ephemeral_key(void);
+void test_token_initiated_reattestation_0x21(void);
+void test_reattestation_during_heartbeat_race(void);
+void test_multiple_reattestation_cycles(void);
+void test_reattestation_timeout_during_cycle(void);
+void test_encryption_persists_through_reattestation(void);
+void test_reattestation_key_rotation_verification(void);
+
+// Forward declarations - Serial Buffer Safety Tests (NEW - Group C: 6 tests)
+void test_rx_buffer_overflow_handling(void);
+void test_rx_buffer_wraparound(void);
+void test_rx_buffer_concurrent_read_write(void);
+void test_serial_max_payload_256_bytes(void);
+void test_serial_frame_fragmentation(void);
+void test_serial_usb_disconnect_recovery(void);
+
+// Forward declarations - Provisioning Tests (NEW - Group D: 5 tests)
+void test_provision_valid_keys_and_hash(void);
+void test_provision_reject_invalid_pubkey_length(void);
+void test_provision_reject_invalid_hash_length(void);
+void test_unprovision_zeros_data(void);
+void test_provision_check_detects_zero_hash(void);
+
+// Forward declarations - API Security Tests (NEW - Group E: 7 tests)
+void test_bearer_token_generation_entropy(void);
+void test_bearer_token_validation_success(void);
+void test_bearer_token_validation_failure(void);
+void test_bearer_token_constant_time_comparison(void);
+void test_wifi_ap_claim_password_generation(void);
+void test_wifi_ap_password_rotation(void);
+void test_api_input_hex_validation(void);
+
 int main(void) {
     UNITY_BEGIN();
 
@@ -138,6 +189,65 @@ int main(void) {
     RUN_TEST(test_integrity_validates_with_different_nonce);
     RUN_TEST(test_integrity_zero_hash_detection);
     RUN_TEST(test_integrity_all_ones_hash_detection);
+
+    // ========================================================================
+    // NEW TESTS - Phase 1 (41 tests)
+    // ========================================================================
+
+    // Group A: Cryptographic Operations Tests (15 tests)
+    RUN_TEST(test_aes_gcm_encrypt_decrypt_roundtrip);
+    RUN_TEST(test_aes_gcm_decrypt_with_wrong_key);
+    RUN_TEST(test_aes_gcm_decrypt_with_tampered_tag);
+    RUN_TEST(test_aes_gcm_encrypt_iv_uniqueness);
+    RUN_TEST(test_ecdh_shared_secret_computation);
+    RUN_TEST(test_ecdh_ephemeral_key_generation);
+    RUN_TEST(test_ecdh_key_derivation_hkdf);
+    RUN_TEST(test_ecdsa_sign_with_permanent_key);
+    RUN_TEST(test_ecdsa_verify_valid_signature);
+    RUN_TEST(test_ecdsa_reject_invalid_signature);
+    RUN_TEST(test_atecc_read_host_pubkey_slot8);
+    RUN_TEST(test_atecc_write_host_pubkey_slot8);
+    RUN_TEST(test_atecc_read_golden_hash_slot8_block2);
+    RUN_TEST(test_atecc_write_golden_hash_slot8_block2);
+    RUN_TEST(test_compute_sha256_consistency);
+
+    // Group B: Protocol Re-Attestation Tests (8 tests)
+    RUN_TEST(test_reattestation_full_cycle_0x40_to_0x40);
+    RUN_TEST(test_reattestation_generates_new_ephemeral_key);
+    RUN_TEST(test_token_initiated_reattestation_0x21);
+    RUN_TEST(test_reattestation_during_heartbeat_race);
+    RUN_TEST(test_multiple_reattestation_cycles);
+    RUN_TEST(test_reattestation_timeout_during_cycle);
+    RUN_TEST(test_encryption_persists_through_reattestation);
+    RUN_TEST(test_reattestation_key_rotation_verification);
+
+    // Group C: Serial Buffer Safety Tests (6 tests)
+    RUN_TEST(test_rx_buffer_overflow_handling);
+    RUN_TEST(test_rx_buffer_wraparound);
+    RUN_TEST(test_rx_buffer_concurrent_read_write);
+    RUN_TEST(test_serial_max_payload_256_bytes);
+    RUN_TEST(test_serial_frame_fragmentation);
+    RUN_TEST(test_serial_usb_disconnect_recovery);
+
+    // Group D: Provisioning Security Tests (5 tests)
+    RUN_TEST(test_provision_valid_keys_and_hash);
+    RUN_TEST(test_provision_reject_invalid_pubkey_length);
+    RUN_TEST(test_provision_reject_invalid_hash_length);
+    RUN_TEST(test_unprovision_zeros_data);
+    RUN_TEST(test_provision_check_detects_zero_hash);
+
+    // Group E: WiFi/API Security Tests (7 tests)
+    RUN_TEST(test_bearer_token_generation_entropy);
+    RUN_TEST(test_bearer_token_validation_success);
+    RUN_TEST(test_bearer_token_validation_failure);
+    RUN_TEST(test_bearer_token_constant_time_comparison);
+    RUN_TEST(test_wifi_ap_claim_password_generation);
+    RUN_TEST(test_wifi_ap_password_rotation);
+    RUN_TEST(test_api_input_hex_validation);
+
+    // ========================================================================
+    // Total: 55 existing + 41 new = 96 tests
+    // ========================================================================
 
     return UNITY_END();
 }
