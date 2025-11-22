@@ -306,29 +306,43 @@ class TestBootstrapComprehensive(unittest.TestCase):
     def setUp(self):
         # Create Mock Token
         self.token = MockToken()
-        
+
         # Create Host with NaiveCrypto (easier to manage keys than TPM mock)
         self.crypto = NaiveCrypto()
         # Ensure crypto has keys
         if not self.crypto.load_permanent_keys():
             self.crypto.generate_permanent_keypair()
-        
+
         # Provision Token with Host Pubkey
         host_pub = self.crypto.get_host_permanent_pubkey()
         self.token.set_host_pubkey(host_pub)
-        
+
         # Provision Host with Token Pubkey
         self.crypto.set_token_permanent_pubkey(self.token.pubkey_bytes)
-        
+
         # Provision Token with Golden Hash
-        # Default golden hash in host is SHA256(b"h\0") if file not provided
-        # But bootstrap loads it. Let's set a known one.
-        self.golden_hash = b'\xaa' * 32
+        # IMPORTANT: Host computes SHA256(file_contents) at runtime
+        # So we need to write actual DATA to the file, not a pre-computed hash
+        import hashlib
+        self.test_data = b'test_golden_data_for_verification'
+
+        # Check if testfile already exists - if so, preserve it
+        self.testfile_existed = os.path.exists('testfile')
+        if self.testfile_existed:
+            with open('testfile', 'rb') as f:
+                self.original_testfile_content = f.read()
+        else:
+            self.original_testfile_content = None
+
+        # Write test data to the file that host will hash
+        with open('testfile', 'wb') as f:
+            f.write(self.test_data)
+
+        # Compute the hash that host will compute
+        self.golden_hash = hashlib.sha256(self.test_data).digest()
+
+        # Set token to expect this hash
         self.token.set_golden_hash(self.golden_hash)
-        
-        # Write golden hash to file (MASTRHost reads this file)
-        with open('golden_hash.bin', 'wb') as f:
-            f.write(self.golden_hash)
         
         # Mock Serial Handler
         self.mock_handler_patcher = patch('host.main.SerialHandler')
@@ -393,11 +407,17 @@ class TestBootstrapComprehensive(unittest.TestCase):
         self.running = False
         self.delivery_thread.join(timeout=1.0)
         self.mock_handler_patcher.stop()
-        
-        # Cleanup golden hash file
-        if os.path.exists('golden_hash.bin'):
-            os.remove('golden_hash.bin')
-            
+
+        # Restore testfile to its original state
+        if self.testfile_existed:
+            # File existed before - restore original content
+            with open('testfile', 'wb') as f:
+                f.write(self.original_testfile_content)
+        else:
+            # File didn't exist before - remove it
+            if os.path.exists('testfile'):
+                os.remove('testfile')
+
         # Stop token threads
         self.token.stop()
 
@@ -429,18 +449,19 @@ class TestBootstrapComprehensive(unittest.TestCase):
             
     def test_integrity_failure_golden_hash_mismatch(self):
         """Test token rejecting mismatching golden hash"""
-        # Host computes different hash than token expects
-        wrong_hash = b'\xbb' * 32
-        
-        # Overwrite golden hash file with wrong hash
-        with open('golden_hash.bin', 'wb') as f:
-            f.write(wrong_hash)
-        
+        # Host will compute SHA256(self.test_data) from testfile
+        # But we set token to expect a DIFFERENT hash
+        import hashlib
+        wrong_hash = hashlib.sha256(b'boo').digest()
+
+        # Set token to expect wrong hash (don't modify testfile!)
+        self.token.set_golden_hash(wrong_hash)
+
         host = BootstrapHost(port='/dev/test', crypto=self.crypto, debug_mode=True)
         self.host_instance = host
-        
+
         exit_code = host.bootstrap()
-        
+
         self.assertEqual(exit_code, 1)
         self.assertEqual(self.token.state, MockTokenState.HALT)
 
