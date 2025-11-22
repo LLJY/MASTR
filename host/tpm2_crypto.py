@@ -17,7 +17,7 @@ from tpm2_pytss import (
     ESAPI, TPM2_SU, TPM2_ECC, TPM2_ALG, ESYS_TR,
     TPMT_SIG_SCHEME, TPMT_ECC_SCHEME, TPMT_PUBLIC, TPMS_ECC_PARMS,
     TPM2B_DIGEST, TPMT_TK_HASHCHECK, TPM2B_SENSITIVE_CREATE,
-    TPMS_ECC_POINT, TPM2B_ECC_PARAMETER,
+    TPMS_ECC_POINT, TPM2B_ECC_POINT, TPM2B_ECC_PARAMETER,
     TPMS_NV_PUBLIC, TPM2B_NV_PUBLIC, TPMA_NV, TPMA_OBJECT, TPM2B_PUBLIC,
     TPMS_SCHEME_HASH, TPM2B_AUTH
 )
@@ -314,13 +314,14 @@ class TPM2Crypto(CryptoInterface):
     def compute_shared_secret(self, ephemeral_privkey: object, peer_pubkey: bytes) -> Optional[bytes]:
         """Compute ECDH shared secret"""
         if len(peer_pubkey) != 64:
+            print(f"ERROR: peer_pubkey length is {len(peer_pubkey)}, expected 64")
             return None
-        
+
         try:
-            # Convert peer's raw public key to TPMS_ECC_POINT
+            # Convert peer's raw public key to TPM2B_ECC_POINT (wrapper for TPMS_ECC_POINT)
             x = TPM2B_ECC_PARAMETER(peer_pubkey[:32])
             y = TPM2B_ECC_PARAMETER(peer_pubkey[32:])
-            peer_point = TPMS_ECC_POINT(x=x, y=y)
+            peer_point = TPM2B_ECC_POINT(point=TPMS_ECC_POINT(x=x, y=y))
 
             # Compute shared secret using ECDH
             z_point = self.esapi.ecdh_zgen(ephemeral_privkey, peer_point)
@@ -328,9 +329,13 @@ class TPM2Crypto(CryptoInterface):
             # Clean up ephemeral key after use
             self.esapi.flush_context(ephemeral_privkey)
 
-            return bytes(z_point.x.buffer)
+            # z_point is TPM2B_ECC_POINT wrapper - access via .point.x
+            return bytes(z_point.point.x.buffer)
 
-        except Exception:
+        except Exception as e:
+            print(f"Exception in compute_shared_secret: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def derive_session_key(self, shared_secret: bytes) -> Optional[bytes]:
@@ -383,17 +388,17 @@ class TPM2Crypto(CryptoInterface):
         """Decrypt payload if required by protocol state"""
         if not self.should_encrypt():
             return payload
-        
+
         if self.session_key is None:
             raise ValueError("Session key not set")
-        
+
         if len(payload) < ENCRYPTION_OVERHEAD:
             raise ValueError(f"Payload too short for decryption: {len(payload)} bytes")
-        
+
         # Extract IV and ciphertext+tag
         iv = payload[:GCM_IV_SIZE]
         ciphertext_and_tag = payload[GCM_IV_SIZE:]
-        
+
         # Decrypt and verify
         try:
             aesgcm = AESGCM(self.session_key)
