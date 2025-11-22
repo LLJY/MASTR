@@ -107,6 +107,7 @@ class HeartbeatDaemon:
             print("=" * 70 + "\n")
         
         Logger.info(f"Port: {self.port}")
+        Logger.info(f"Crypto backend: {type(self.crypto).__name__}")
         Logger.info(f"Interval: {self.interval}s")
         Logger.info(f"Timeout threshold: {self.timeout_threshold}")
         Logger.info(f"LKRG monitoring: {'enabled' if self.check_lkrg else 'disabled'}")
@@ -632,13 +633,16 @@ Examples:
     Logger.verbose = args.verbose
 
     # Initialize crypto backend (default to TPM2 for production)
+    crypto_backend_name = None
     try:
         crypto = TPM2Crypto()
-        Logger.info("Using TPM2Crypto backend")
+        crypto_backend_name = "TPM2Crypto"
+        Logger.info("✓ Using TPM2Crypto backend")
     except Exception as e:
         Logger.warning(f"Failed to initialize TPM2Crypto: {e}")
         Logger.warning("Falling back to NaiveCrypto (file-based)")
         crypto = NaiveCrypto()
+        crypto_backend_name = "NaiveCrypto"
 
     # Create and start daemon
     daemon = HeartbeatDaemon(

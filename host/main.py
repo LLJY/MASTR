@@ -984,12 +984,14 @@ class MASTRHost:
         time.sleep(3)
         
         # Stop watchdog and disconnect our handler
+        Logger.info(f"Crypto backend used by main.py: {type(self.crypto).__name__}")
         self._stop_session_watchdog()
         self.handler.stop()
         self.handler.disconnect()
-        
+
         # Launch runtime heartbeat as subprocess (like systemd would)
-        Logger.info("Launching runtime heartbeat service...")
+        Logger.info("Launching runtime_heartbeat.py as subprocess...")
+        Logger.info("Note: runtime_heartbeat will auto-detect and use TPM2Crypto if available")
         Logger.info("Command: python -m host.runtime_heartbeat /dev/ttyACM0 --debug-no-shutdown")
         
         import subprocess
