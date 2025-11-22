@@ -1,10 +1,3 @@
-/**
- * CPU Utilization Monitoring
- * 
- * Tracks idle task execution time to calculate real CPU utilization.
- * Uses FreeRTOS idle hook to increment idle tick counter.
- */
-
 #include <stdint.h>
 #include <stddef.h>
 #include "FreeRTOS.h"
@@ -15,10 +8,9 @@
 #include <string.h>
 #include "pico/time.h"
 #include "serial.h"
-// Forward declaration for cpu_get_percent (optional header could be added later)
-
-
-// Tick-based idle accounting reinstated for fallback stability.
+/*******************************************************************************
+ * @brief Idle hook counter used for fallback CPU accounting.
+ ******************************************************************************/
 volatile uint32_t g_idleTicks = 0;
 void vApplicationIdleHook(void) {
     static uint32_t lastTick = 0;
@@ -29,9 +21,10 @@ void vApplicationIdleHook(void) {
     }
 }
 
-// Return CPU usage percent (integer 0-100) using FreeRTOS run-time stats.
-// Accurate path: sum per-task run time counters and derive busy = total - idle.
-// Uses a minimum delta window to avoid noisy tiny samples.
+/*******************************************************************************
+ * @brief Compute CPU utilization percentage using FreeRTOS runtime stats.
+ * @return CPU usage percent (0-100), last sampled value if insufficient data.
+ ******************************************************************************/
 uint32_t cpu_get_percent(void)
 {
     #define CPU_MON_MAX_TASKS 48
@@ -42,13 +35,12 @@ uint32_t cpu_get_percent(void)
     static uint32_t acc_idle  = 0;
     static uint32_t last_percent = 0;
 
-    // If scheduler not running yet, just return last cached percent.
     if (xTaskGetSchedulerState() != taskSCHEDULER_RUNNING) {
         return last_percent;
     }
 
     UBaseType_t numTasks = uxTaskGetNumberOfTasks();
-    if (numTasks < 2) { // Need at least Idle + one other
+    if (numTasks < 2) {
         return last_percent;
     }
 
@@ -71,7 +63,7 @@ uint32_t cpu_get_percent(void)
         }
     }
 
-    if (last_total == 0) { // establish baseline
+    if (last_total == 0) {
         last_total = sumAll;
         last_idle  = sumIdle;
         return last_percent;
@@ -86,12 +78,11 @@ uint32_t cpu_get_percent(void)
         return last_percent;
     }
 
-    // Accumulate to reach ~100ms window at 10kHz runtime counter (threshold = 1000 ticks)
     acc_total += dTotal;
     acc_idle  += dIdle;
-    const uint32_t MIN_RT_DELTA = 1000; // ~100ms
+    const uint32_t MIN_RT_DELTA = 1000;
     if (acc_total < MIN_RT_DELTA) {
-        return last_percent; // wait for sufficient window
+        return last_percent;
     }
 
     dTotal = acc_total;
@@ -104,15 +95,16 @@ uint32_t cpu_get_percent(void)
     }
 
     uint32_t busy = dTotal - dIdle;
-    uint32_t percent = (busy * 100U + (dTotal / 2U)) / dTotal; // rounded
+    uint32_t percent = (busy * 100U + (dTotal / 2U)) / dTotal;
     last_percent = percent;
     return percent;
 }
 
-// Provide the runtime counter for FreeRTOS stats without including Pico headers in FreeRTOSConfig.h
+/*******************************************************************************
+ * @brief FreeRTOS runtime counter hook (~10kHz) for stats.
+ * @return Runtime counter value.
+ ******************************************************************************/
 uint32_t freertos_runtime_counter_get(void)
 {
-    // Scale microsecond hardware timer to ~10kHz resolution (100 microseconds per tick)
-    // Improves stability of short-window measurements and extends wrap period.
     return (uint32_t)(time_us_64() / 100ULL);
 }

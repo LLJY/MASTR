@@ -1,6 +1,3 @@
-// Rebuilt HTTP server file: cleaned duplicates, minimal single-connection server
-// with deferred close via tcp_sent to reduce intermittent curl failures.
-
 #include "http_server.h"
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
@@ -10,17 +7,30 @@
 #include "serial.h"
 
 
-struct route_entry { 
-    const char *path; 
+struct route_entry {
+    const char *path;
     http_handler_fn handler;
-    bool requires_auth;  // Does this route require bearer token auth?
+    bool requires_auth;
 };
 static struct route_entry routes[MAX_ROUTES];
 
+/*******************************************************************************
+ * @brief Register a public HTTP route.
+ * @param path Route path.
+ * @param handler Handler function.
+ * @return 0 on success, -1 if table is full.
+ ******************************************************************************/
 int http_register(const char *path, http_handler_fn handler) {
-    return http_register_auth(path, handler, false);  // Public by default
+    return http_register_auth(path, handler, false);
 }
 
+/*******************************************************************************
+ * @brief Register an HTTP route with optional auth requirement.
+ * @param path Route path.
+ * @param handler Handler function.
+ * @param requires_auth Whether bearer auth is required.
+ * @return 0 on success, -1 if table is full.
+ ******************************************************************************/
 int http_register_auth(const char *path, http_handler_fn handler, bool requires_auth) {
     for (int i = 0; i < MAX_ROUTES; ++i) {
         if (routes[i].path == NULL) {
@@ -38,16 +48,27 @@ int http_register_auth(const char *path, http_handler_fn handler, bool requires_
 
 static http_state_t g_state;
 
+/*******************************************************************************
+ * @brief Reset HTTP connection state.
+ * @return void
+ ******************************************************************************/
 static void reset_state(void) {
     g_state.request_len = 0;
     g_state.request[0] = '\0';
     g_state.in_use = false;
     g_state.close_when_sent = false;
     
-    // Track connection closing
     http_connection_closed();
 }
 
+/*******************************************************************************
+ * @brief Send an HTTP response with headers and body.
+ * @param pcb TCP PCB.
+ * @param status Status line text.
+ * @param content_type Content-Type header value.
+ * @param body Response body.
+ * @return void
+ ******************************************************************************/
 static void send_response(struct tcp_pcb *pcb, const char *status, const char *content_type, const char *body) {
     char header[512];
     int header_len = snprintf(header, sizeof(header),
@@ -68,6 +89,13 @@ static void send_response(struct tcp_pcb *pcb, const char *status, const char *c
     g_state.close_when_sent = true;
 }
 
+/*******************************************************************************
+ * @brief Convenience for sending JSON responses.
+ * @param pcb TCP PCB.
+ * @param status_code HTTP status code.
+ * @param json_body JSON body string.
+ * @return void
+ ******************************************************************************/
 void http_send_json(struct tcp_pcb *pcb, int status_code, const char *json_body) {
     char status[32];
     switch (status_code) {
@@ -83,7 +111,6 @@ static void handle_request(struct tcp_pcb *pcb, char *request) {
     char method[8], path[64];
     sscanf(request, "%7s %63s", method, path);
     
-    // Handle CORS preflight OPTIONS requests
     if (strcmp(method, "OPTIONS") == 0) {
         const char *cors_response = 
             "HTTP/1.1 204 No Content\r\n"
@@ -100,7 +127,6 @@ static void handle_request(struct tcp_pcb *pcb, char *request) {
     
     for (int i = 0; i < MAX_ROUTES; ++i) {
         if (routes[i].path && strcmp(path, routes[i].path) == 0) {
-            // Check if this route requires authentication
             if (routes[i].requires_auth && !http_validate_bearer_token(request)) {
                 send_response(pcb, "401 Unauthorized", "application/json", 
                     "{\"error\":\"unauthorized\",\"message\":\"Bearer token required. Call POST /api/auth/generate-token first.\"}");
@@ -127,6 +153,14 @@ static err_t http_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
     return ERR_OK;
 }
 
+/*******************************************************************************
+ * @brief Receive callback for HTTP TCP connections.
+ * @param arg Unused arg pointer.
+ * @param pcb TCP PCB.
+ * @param p Incoming pbuf.
+ * @param err lwIP error code.
+ * @return lwIP status.
+ ******************************************************************************/
 static err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) {
     (void)arg; (void)err;
     if (!p) return http_close(pcb);
@@ -148,6 +182,13 @@ static err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err
     return ERR_OK;
 }
 
+/*******************************************************************************
+ * @brief Accept callback for incoming HTTP connections.
+ * @param arg Unused arg pointer.
+ * @param client_pcb Client TCP PCB.
+ * @param err lwIP error code.
+ * @return lwIP status.
+ ******************************************************************************/
 static err_t http_accept(void *arg, struct tcp_pcb *client_pcb, err_t err) {
     (void)arg; (void)err;
     if (g_state.in_use) { 
@@ -155,7 +196,6 @@ static err_t http_accept(void *arg, struct tcp_pcb *client_pcb, err_t err) {
         return ERR_OK; 
     }
     
-    // Track new connection
     http_connection_opened();
     
     g_state.in_use = true; g_state.request_len = 0; g_state.close_when_sent = false; g_state.request[0] = '\0';
@@ -166,6 +206,10 @@ static err_t http_accept(void *arg, struct tcp_pcb *client_pcb, err_t err) {
     return ERR_OK;
 }
 
+/*******************************************************************************
+ * @brief Initialize the HTTP server and start listening on port 80.
+ * @return void
+ ******************************************************************************/
 void http_server_init(void) {
     struct tcp_pcb *pcb = tcp_new_ip_type(IPADDR_TYPE_ANY);
     if (!pcb) { print_dbg("HTTP: tcp_new failed\n"); return; }
@@ -175,22 +219,30 @@ void http_server_init(void) {
     print_dbg("HTTP server initialized on port 80\n");
 }
 
-// ============================================================================
-// HTTP Server Monitoring Functions
-// ============================================================================
-
 static uint32_t g_active_connections = 0;
 
+/*******************************************************************************
+ * @brief Track a newly opened HTTP connection.
+ * @return void
+ ******************************************************************************/
 static void http_connection_opened(void) {
     g_active_connections++;
 }
 
+/*******************************************************************************
+ * @brief Track a closed HTTP connection.
+ * @return void
+ ******************************************************************************/
 static void http_connection_closed(void) {
     if (g_active_connections > 0) {
         g_active_connections--;
     }
 }
 
+/*******************************************************************************
+ * @brief Get the number of active HTTP connections.
+ * @return Current active connection count.
+ ******************************************************************************/
 uint32_t http_get_active_connections(void) {
     return g_active_connections;
 }

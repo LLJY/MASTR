@@ -24,10 +24,6 @@
  * THE SOFTWARE.
  */
 
-// For DHCP specs see:
-//  https://www.ietf.org/rfc/rfc2131.txt
-//  https://tools.ietf.org/html/rfc2132 -- DHCP Options and BOOTP Vendor Extensions
-
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
@@ -63,33 +59,35 @@
 #define PORT_DHCP_SERVER (67)
 #define PORT_DHCP_CLIENT (68)
 
-#define DEFAULT_LEASE_TIME_S (24 * 60 * 60) // in seconds
+#define DEFAULT_LEASE_TIME_S (24 * 60 * 60)
 
 #define MAC_LEN (6)
 #define MAKE_IP4(a, b, c, d) ((a) << 24 | (b) << 16 | (c) << 8 | (d))
 
 typedef struct {
-    uint8_t op; // message opcode
-    uint8_t htype; // hardware address type
-    uint8_t hlen; // hardware address length
+    uint8_t op;
+    uint8_t htype;
+    uint8_t hlen;
     uint8_t hops;
-    uint32_t xid; // transaction id, chosen by client
-    uint16_t secs; // client seconds elapsed
+    uint32_t xid;
+    uint16_t secs;
     uint16_t flags;
-    uint8_t ciaddr[4]; // client IP address
-    uint8_t yiaddr[4]; // your IP address
-    uint8_t siaddr[4]; // next server IP address
-    uint8_t giaddr[4]; // relay agent IP address
-    uint8_t chaddr[16]; // client hardware address
-    uint8_t sname[64]; // server host name
-    uint8_t file[128]; // boot file name
-    uint8_t options[312]; // optional parameters, variable, starts with magic
+    uint8_t ciaddr[4];
+    uint8_t yiaddr[4];
+    uint8_t siaddr[4];
+    uint8_t giaddr[4];
+    uint8_t chaddr[16];
+    uint8_t sname[64];
+    uint8_t file[128];
+    uint8_t options[312];
 } dhcp_msg_t;
 
-// Convert lwIP ip_addr_t to 4 bytes in dotted order (a.b.c.d) into buf[0..3].
-// Use the ip4_addrX() helpers to avoid endianness issues (ip4_addr_get_u32
-// can be in host byte order on little-endian platforms). Using the helpers
-// guarantees we extract the octets in the correct network (dotted) order.
+/*******************************************************************************
+ * @brief Convert lwIP IPv4 address to dotted-order bytes.
+ * @param a Source IP address.
+ * @param buf Destination buffer for four octets.
+ * @return void
+ ******************************************************************************/
 static void ipaddr_to_bytes(const ip_addr_t *a, uint8_t *buf) {
     const ip4_addr_t *ip4 = ip_2_ip4((ip_addr_t *)a);
     buf[0] = ip4_addr1(ip4);
@@ -98,21 +96,29 @@ static void ipaddr_to_bytes(const ip_addr_t *a, uint8_t *buf) {
     buf[3] = ip4_addr4(ip4);
 }
 
+/*******************************************************************************
+ * @brief Allocate a UDP socket for DHCP.
+ * @param udp Output pointer for the PCB.
+ * @param cb_data User data passed to the callback.
+ * @param cb_udp_recv Receive callback.
+ * @return 0 on success, negative errno on failure.
+ ******************************************************************************/
 static int dhcp_socket_new_dgram(struct udp_pcb **udp, void *cb_data, udp_recv_fn cb_udp_recv) {
-    // family is AF_INET
-    // type is SOCK_DGRAM
-
     *udp = udp_new();
     if (*udp == NULL) {
         return -ENOMEM;
     }
 
-    // Register callback
     udp_recv(*udp, cb_udp_recv, (void *)cb_data);
 
-    return 0; // success
+    return 0;
 }
 
+/*******************************************************************************
+ * @brief Free a DHCP UDP socket.
+ * @param udp PCB pointer to clear.
+ * @return void
+ ******************************************************************************/
 static void dhcp_socket_free(struct udp_pcb **udp) {
     if (*udp != NULL) {
         udp_remove(*udp);
@@ -120,11 +126,26 @@ static void dhcp_socket_free(struct udp_pcb **udp) {
     }
 }
 
+/*******************************************************************************
+ * @brief Bind a DHCP UDP socket to a port.
+ * @param udp PCB pointer.
+ * @param port Port number.
+ * @return lwIP status code.
+ ******************************************************************************/
 static int dhcp_socket_bind(struct udp_pcb **udp, uint16_t port) {
-    // TODO convert lwIP errors to errno
     return udp_bind(*udp, IP_ANY_TYPE, port);
 }
 
+/*******************************************************************************
+ * @brief Send a DHCP UDP datagram.
+ * @param udp PCB pointer.
+ * @param nif Network interface to send on (optional).
+ * @param buf Payload buffer.
+ * @param len Payload length.
+ * @param ip Destination IPv4 address.
+ * @param port Destination port.
+ * @return Bytes sent or error code.
+ ******************************************************************************/
 static int dhcp_socket_sendto(struct udp_pcb **udp, struct netif *nif, const void *buf, size_t len, uint32_t ip, uint16_t port) {
     if (len > 0xffff) {
         len = 0xffff;
@@ -155,6 +176,12 @@ static int dhcp_socket_sendto(struct udp_pcb **udp, struct netif *nif, const voi
     return len;
 }
 
+/*******************************************************************************
+ * @brief Find a DHCP option within an options buffer.
+ * @param opt Options buffer start.
+ * @param cmd Option code to search for.
+ * @return Pointer to matching option or NULL.
+ ******************************************************************************/
 static uint8_t *opt_find(uint8_t *opt, uint8_t cmd) {
     for (int i = 0; i < 308 && opt[i] != DHCP_OPT_END;) {
         if (opt[i] == cmd) {
@@ -165,6 +192,14 @@ static uint8_t *opt_find(uint8_t *opt, uint8_t cmd) {
     return NULL;
 }
 
+/*******************************************************************************
+ * @brief Write a DHCP option with arbitrary length.
+ * @param opt Cursor pointer updated on return.
+ * @param cmd Option code.
+ * @param n Length of data.
+ * @param data Pointer to data bytes.
+ * @return void
+ ******************************************************************************/
 static void opt_write_n(uint8_t **opt, uint8_t cmd, size_t n, const void *data) {
     uint8_t *o = *opt;
     *o++ = cmd;
@@ -173,6 +208,13 @@ static void opt_write_n(uint8_t **opt, uint8_t cmd, size_t n, const void *data) 
     *opt = o + n;
 }
 
+/*******************************************************************************
+ * @brief Write a one-byte DHCP option.
+ * @param opt Cursor pointer updated on return.
+ * @param cmd Option code.
+ * @param val Option value.
+ * @return void
+ ******************************************************************************/
 static void opt_write_u8(uint8_t **opt, uint8_t cmd, uint8_t val) {
     uint8_t *o = *opt;
     *o++ = cmd;
@@ -181,6 +223,13 @@ static void opt_write_u8(uint8_t **opt, uint8_t cmd, uint8_t val) {
     *opt = o;
 }
 
+/*******************************************************************************
+ * @brief Write a four-byte DHCP option.
+ * @param opt Cursor pointer updated on return.
+ * @param cmd Option code.
+ * @param val Option value.
+ * @return void
+ ******************************************************************************/
 static void opt_write_u32(uint8_t **opt, uint8_t cmd, uint32_t val) {
     uint8_t *o = *opt;
     *o++ = cmd;
@@ -192,13 +241,21 @@ static void opt_write_u32(uint8_t **opt, uint8_t cmd, uint32_t val) {
     *opt = o;
 }
 
+/*******************************************************************************
+ * @brief Process inbound DHCP packets and respond appropriately.
+ * @param arg DHCP server context.
+ * @param upcb UDP PCB (unused).
+ * @param p Incoming pbuf.
+ * @param src_addr Source address (unused).
+ * @param src_port Source port (unused).
+ * @return void
+ ******************************************************************************/
 static void dhcp_server_process(void *arg, struct udp_pcb *upcb, struct pbuf *p, const ip_addr_t *src_addr, u16_t src_port) {
     dhcp_server_t *d = arg;
     (void)upcb;
     (void)src_addr;
     (void)src_port;
 
-    // This is around 548 bytes
     dhcp_msg_t dhcp_msg;
 
     #define DHCP_MIN_SIZE (240 + 3)
@@ -212,15 +269,13 @@ static void dhcp_server_process(void *arg, struct udp_pcb *upcb, struct pbuf *p,
     }
 
     dhcp_msg.op = DHCPOFFER;
-    // Copy server IP into yiaddr as four network-order bytes
     ipaddr_to_bytes(&d->ip, dhcp_msg.yiaddr);
 
     uint8_t *opt = (uint8_t *)&dhcp_msg.options;
-    opt += 4; // assume magic cookie: 99, 130, 83, 99
+    opt += 4;
 
     uint8_t *msgtype = opt_find(opt, DHCP_OPT_MSG_TYPE);
     if (msgtype == NULL) {
-        // A DHCP package without MSG_TYPE?
         goto ignore_request;
     }
 
@@ -229,26 +284,21 @@ static void dhcp_server_process(void *arg, struct udp_pcb *upcb, struct pbuf *p,
             int yi = DHCPS_MAX_IP;
             for (int i = 0; i < DHCPS_MAX_IP; ++i) {
                 if (memcmp(d->lease[i].mac, dhcp_msg.chaddr, MAC_LEN) == 0) {
-                    // MAC match, use this IP address
                     yi = i;
                     break;
                 }
                 if (yi == DHCPS_MAX_IP) {
-                    // Look for a free IP address
                     if (memcmp(d->lease[i].mac, "\x00\x00\x00\x00\x00\x00", MAC_LEN) == 0) {
-                        // IP available
                         yi = i;
                     }
                     uint32_t expiry = d->lease[i].expiry << 16 | 0xffff;
                     if ((int32_t)(expiry - cyw43_hal_ticks_ms()) < 0) {
-                        // IP expired, reuse it
                         memset(d->lease[i].mac, 0, MAC_LEN);
                         yi = i;
                     }
                 }
             }
             if (yi == DHCPS_MAX_IP) {
-                // No more IP addresses left
                 goto ignore_request;
             }
             dhcp_msg.yiaddr[3] = DHCPS_BASE_IP + yi;
@@ -259,28 +309,21 @@ static void dhcp_server_process(void *arg, struct udp_pcb *upcb, struct pbuf *p,
         case DHCPREQUEST: {
             uint8_t *o = opt_find(opt, DHCP_OPT_REQUESTED_IP);
             if (o == NULL) {
-                // Should be NACK
                 goto ignore_request;
             }
             uint8_t server_id_bytes[4];
             ipaddr_to_bytes(&d->ip, server_id_bytes);
             if (memcmp(o + 2, server_id_bytes, 3) != 0) {
-                // Should be NACK
                 goto ignore_request;
             }
             uint8_t yi = o[5] - DHCPS_BASE_IP;
             if (yi >= DHCPS_MAX_IP) {
-                // Should be NACK
                 goto ignore_request;
             }
             if (memcmp(d->lease[yi].mac, dhcp_msg.chaddr, MAC_LEN) == 0) {
-                // MAC match, ok to use this IP address
             } else if (memcmp(d->lease[yi].mac, "\x00\x00\x00\x00\x00\x00", MAC_LEN) == 0) {
-                // IP unused, ok to use this IP address
                 memcpy(d->lease[yi].mac, dhcp_msg.chaddr, MAC_LEN);
             } else {
-                // IP already in use
-                // Should be NACK
                 goto ignore_request;
             }
             d->lease[yi].expiry = (cyw43_hal_ticks_ms() + DEFAULT_LEASE_TIME_S * 1000) >> 16;
@@ -299,9 +342,9 @@ static void dhcp_server_process(void *arg, struct udp_pcb *upcb, struct pbuf *p,
     ipaddr_to_bytes(&d->nm, tmp_ip);
     opt_write_n(&opt, DHCP_OPT_SUBNET_MASK, 4, tmp_ip);
     ipaddr_to_bytes(&d->ip, tmp_ip);
-    opt_write_n(&opt, DHCP_OPT_ROUTER, 4, tmp_ip); // aka gateway; can have multiple addresses
+    opt_write_n(&opt, DHCP_OPT_ROUTER, 4, tmp_ip);
     ipaddr_to_bytes(&d->ip, tmp_ip);
-    opt_write_n(&opt, DHCP_OPT_DNS, 4, tmp_ip); // this server is the dns
+    opt_write_n(&opt, DHCP_OPT_DNS, 4, tmp_ip);
     opt_write_u32(&opt, DHCP_OPT_IP_LEASE_TIME, DEFAULT_LEASE_TIME_S);
     *opt++ = DHCP_OPT_END;
     struct netif *nif = ip_current_input_netif();
@@ -311,6 +354,13 @@ ignore_request:
     pbuf_free(p);
 }
 
+/*******************************************************************************
+ * @brief Initialize and bind the DHCP server.
+ * @param d DHCP server context.
+ * @param ip Server IP address.
+ * @param nm Netmask.
+ * @return void
+ ******************************************************************************/
 void dhcp_server_init(dhcp_server_t *d, ip_addr_t *ip, ip_addr_t *nm) {
     ip_addr_copy(d->ip, *ip);
     ip_addr_copy(d->nm, *nm);
@@ -321,6 +371,11 @@ void dhcp_server_init(dhcp_server_t *d, ip_addr_t *ip, ip_addr_t *nm) {
     dhcp_socket_bind(&d->udp, PORT_DHCP_SERVER);
 }
 
+/*******************************************************************************
+ * @brief Deinitialize the DHCP server and free resources.
+ * @param d DHCP server context.
+ * @return void
+ ******************************************************************************/
 void dhcp_server_deinit(dhcp_server_t *d) {
     dhcp_socket_free(&d->udp);
 }
