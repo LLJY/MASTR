@@ -1,4 +1,5 @@
 #include "protocol.h"
+#include "projdefs.h"
 #include "serial.h"
 #include "crypto.h"
 #include "constants.h"
@@ -25,14 +26,14 @@ void protocol_provision(const uint8_t* p_golden_hash,
     const uint8_t pub_key_len)
 {
     #ifndef UNIT_TEST
-        
+
     // sanity check the lengths
     if(golden_hash_len != 32 || pub_key_len != 64)
         return;
-    
+
     crypto_set_golden_hash(p_golden_hash);
     crypto_set_host_pubkey(p_pub_key);
-    
+
     #endif
 }
 
@@ -40,17 +41,17 @@ void protocol_provision(const uint8_t* p_golden_hash,
 void protocol_unprovision(void){
     static const uint8_t zero_golden_hash[32] = {0};
     static const uint8_t zero_pub_key[64] = {0};
-    
+
     protocol_provision(zero_golden_hash, zero_pub_key, sizeof(zero_golden_hash), sizeof(zero_pub_key));
     return;
 }
 
 // check if the protocol is provisioned, if not perform some function...
 bool protocol_check_provisioned(void) {
-    
+
     // Force 4-byte alignment
     static uint8_t host_pubkey[64] __attribute__((aligned(4)));
-    
+
     if (crypto_ecdh_read_host_pubkey(host_pubkey) != true){
         return false;
     }
@@ -61,13 +62,13 @@ bool protocol_check_provisioned(void) {
         return false;
 
     }
-    
+
     static const uint8_t zeros[64] __attribute__((aligned(4))) = {0};
 
-    if (memcmp(host_pubkey, zeros, sizeof(host_pubkey)) == 0 || 
+    if (memcmp(host_pubkey, zeros, sizeof(host_pubkey)) == 0 ||
         memcmp(golden_hash, zeros, sizeof(golden_hash)) == 0)
         return false;
-    
+
     return true; // Provisioned
 }
 // ============================================================================
@@ -337,6 +338,9 @@ void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload
                 // Advance to phase 2 - integrity verification
                 g_protocol_state.current_state = 0x30;
 
+                // delay here for some arbitrary time, host is sometimes slow with tpm
+                pico_delay_ms(SLOW_HOST_COMPENSATION_MSECS);
+
                 #ifndef UNIT_TEST
                 g_protocol_state.integrity_challenge_nonce = get_rand_32();
                 send_message(T2H_INTEGRITY_CHALLENGE, (uint8_t*)&g_protocol_state.integrity_challenge_nonce, 4);
@@ -447,9 +451,10 @@ void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload
             g_protocol_state.last_hb_timstamp = time_us_64();
             g_protocol_state.missed_hb_count = 0;  // Reset missed count
 
-            // Send ACK
+            // Send ACK after a delay of 500ms to compensate for slow hosts
+            pico_delay_ms(SLOW_HOST_COMPENSATION_MSECS);
+
             send_message(T2H_HEARTBEAT_ACK, NULL, 0);
-            print_dbg("Heartbeat received and ACK sent\n");
             break;
 
         // ===== TESTING & DEBUG DO NOT INCLUDE IN PRODUCTION. =====
