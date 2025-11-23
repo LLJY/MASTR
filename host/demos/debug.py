@@ -2,7 +2,7 @@
 Debug and testing tool for the MASTR protocol.
 Provides interactive commands to test all protocol message types.
 """
-
+# AI use delcaration: ONLY the skeleton code and documentation here is ai assisted.
 import sys
 import argparse
 import time
