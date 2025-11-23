@@ -69,6 +69,12 @@ wifi_ap_config_t* wifi_ap_get_config(void);
 bool wifi_ap_rotate_password(const char *new_pass);
 
 /**
+ * Check if WiFi password is currently set
+ * @return true if password is set (WPA2 mode), false if empty (OPEN mode)
+ */
+bool wifi_ap_is_password_set(void);
+
+/**
  * WiFi background task (FreeRTOS task function)
  * 
  * CRITICAL: This task must run regularly (every 50-100ms) for:

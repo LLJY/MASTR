@@ -1,6 +1,7 @@
 #include "wifi_ap.h"
 #include "serial.h"
 #include "ap_manager.h"
+#include "flash_config.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -26,6 +27,14 @@ static wifi_ap_config_t wifi_config = {
  * Actual CYW43 initialization happens in wifi_ap_init_task after FreeRTOS starts
  */
 bool wifi_ap_init(void) {
+    // Try to load WiFi password from flash
+    if (flash_read_wifi_password(wifi_pass_storage, sizeof(wifi_pass_storage))) {
+        print_dbg("WiFi password loaded from flash (len=%d)\n", strlen(wifi_pass_storage));
+    } else {
+        print_dbg("No stored WiFi password - AP will start in OPEN mode\n");
+        wifi_pass_storage[0] = '\0';
+    }
+
     // Just mark that we're ready to initialize WiFi
     // The actual cyw43_arch_init() must happen in a FreeRTOS task
     print_dbg("WiFi subsystem ready for initialization\n");
@@ -239,6 +248,13 @@ bool wifi_ap_restart(void) {
     } else {
         print_dbg("WiFi AP: Restart failed\n");
     }
-    
+
     return success;
+}
+
+/**
+ * Check if WiFi password is currently set
+ */
+bool wifi_ap_is_password_set(void) {
+    return wifi_pass_storage[0] != '\0';
 }

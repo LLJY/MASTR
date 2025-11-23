@@ -11,7 +11,7 @@
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
             background: #1e1e1e;
@@ -19,25 +19,57 @@
             min-height: 100vh;
             padding: 20px;
         }
-        
+
         .header {
             padding: 20px 0;
             border-bottom: 1px solid #333;
             margin-bottom: 30px;
         }
-        
+
         .header h1 {
             font-size: 28px;
             font-weight: 500;
             color: #fff;
             margin-bottom: 5px;
         }
-        
+
         .header .subtitle {
             font-size: 13px;
             color: #888;
         }
-        
+
+        /* State-specific screens */
+        .state-screen {
+            display: none;
+            max-width: 800px;
+            margin: 100px auto;
+            text-align: center;
+        }
+
+        .state-screen.active {
+            display: block;
+        }
+
+        .state-screen h2 {
+            font-size: 32px;
+            color: #fff;
+            margin-bottom: 20px;
+        }
+
+        .state-screen p {
+            font-size: 16px;
+            color: #888;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+
+        .state-screen .button {
+            display: inline-block;
+            padding: 12px 32px;
+            font-size: 16px;
+            margin: 10px;
+        }
+
         .dashboard {
             max-width: 1400px;
             margin: 0 auto;
@@ -45,7 +77,7 @@
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 16px;
         }
-        
+
         .panel {
             background: #262626;
             border-radius: 4px;
@@ -55,16 +87,16 @@
             flex-direction: column;
             height: 300px;
         }
-        
+
         .panel.wide {
             grid-column: span 2;
             height: 320px;
         }
-        
+
         .panel.tall {
             grid-row: span 2;
         }
-        
+
         .panel-title {
             font-size: 12px;
             color: #999;
@@ -73,14 +105,14 @@
             margin-bottom: 15px;
             font-weight: 500;
         }
-        
+
         .panel-content {
             flex: 1;
             display: flex;
             align-items: center;
             justify-content: center;
         }
-        
+
         .gauge-container {
             position: relative;
             width: 150px;
@@ -90,7 +122,7 @@
             flex-direction: column;
             align-items: center;
         }
-        
+
         .gauge-value {
             font-size: 32px;
             font-weight: 600;
@@ -101,19 +133,19 @@
             transform: translate(-50%, -50%);
             text-align: center;
         }
-        
+
         .gauge-unit {
             font-size: 12px;
             color: #888;
         }
-        
+
         .gauge-label {
             font-size: 11px;
             color: #888;
             margin-top: 110px;
             text-align: center;
         }
-        
+
         .metric-box {
             display: flex;
             flex-direction: column;
@@ -121,7 +153,7 @@
             align-items: center;
             text-align: center;
         }
-        
+
         .metric-value {
             font-size: 40px;
             font-weight: 600;
@@ -129,63 +161,63 @@
             line-height: 1;
             margin-bottom: 8px;
         }
-        
+
         .metric-value.orange {
             color: #ff7a45;
         }
-        
+
         .metric-value.blue {
             color: #1890ff;
         }
-        
+
         .metric-value.purple {
             color: #9254de;
         }
-        
+
         .metric-label {
             font-size: 12px;
             color: #888;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-        
+
         .chart-container {
             position: relative;
             flex: 1;
             width: 100%;
         }
-        
+
         .grid-auto {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
             gap: 16px;
         }
-        
+
         .grid-2 {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
             gap: 16px;
         }
-        
+
         .grid-3 {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 16px;
         }
-        
+
         .grid-4 {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 16px;
         }
-        
+
         .status-row {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 16px;
             margin-bottom: 30px;
         }
-        
+
         .section-title {
             font-size: 14px;
             font-weight: 600;
@@ -197,7 +229,7 @@
             border-bottom: 1px solid #333;
             padding-bottom: 10px;
         }
-        
+
         .button {
             padding: 8px 16px;
             border: none;
@@ -208,25 +240,34 @@
             transition: all 0.2s ease;
             margin-top: 10px;
         }
-        
+
         .button-primary {
             background: #1890ff;
             color: white;
         }
-        
+
         .button-primary:hover {
             background: #0050b3;
         }
-        
+
         .button-secondary {
             background: #434343;
             color: #e0e0e0;
         }
-        
+
         .button-secondary:hover {
             background: #555;
         }
-        
+
+        .button-danger {
+            background: #ff4d4f;
+            color: white;
+        }
+
+        .button-danger:hover {
+            background: #cf1322;
+        }
+
         .message {
             padding: 12px 16px;
             border-radius: 3px;
@@ -239,7 +280,7 @@
             z-index: 1000;
             animation: slideIn 0.3s ease;
         }
-        
+
         @keyframes slideIn {
             from {
                 transform: translateX(400px);
@@ -250,23 +291,29 @@
                 opacity: 1;
             }
         }
-        
+
         .message.show {
             display: block;
         }
-        
+
         .message.success {
             background: #274916;
             color: #52c41a;
             border: 1px solid #52c41a;
         }
-        
+
         .message.error {
             background: #58181c;
             color: #ff7875;
             border: 1px solid #ff7875;
         }
-        
+
+        .message.warning {
+            background: #613400;
+            color: #faad14;
+            border: 1px solid #faad14;
+        }
+
         .status-indicator {
             display: inline-block;
             width: 10px;
@@ -275,30 +322,30 @@
             margin-right: 8px;
             vertical-align: middle;
         }
-        
+
         .status-indicator.ok {
             background-color: #52c41a;
         }
-        
+
         .status-indicator.warning {
             background-color: #faad14;
         }
-        
+
         .status-indicator.error {
             background-color: #ff7875;
         }
-        
+
         .info-text {
             font-size: 12px;
             color: #888;
             margin-top: 12px;
             line-height: 1.6;
         }
-        
+
         .info-text strong {
             color: #e0e0e0;
         }
-        
+
         .modal {
             display: none;
             position: fixed;
@@ -310,18 +357,18 @@
             background-color: rgba(0, 0, 0, 0.8);
             animation: fadeIn 0.2s ease;
         }
-        
+
         @keyframes fadeIn {
             from { opacity: 0; }
             to { opacity: 1; }
         }
-        
+
         .modal.show {
             display: flex;
             align-items: center;
             justify-content: center;
         }
-        
+
         .modal-content {
             background: #262626;
             border: 1px solid #333;
@@ -333,7 +380,7 @@
             overflow-y: auto;
             animation: slideUp 0.3s ease;
         }
-        
+
         @keyframes slideUp {
             from {
                 transform: translateY(30px);
@@ -344,7 +391,7 @@
                 opacity: 1;
             }
         }
-        
+
         .modal-header {
             font-size: 20px;
             font-weight: 600;
@@ -354,7 +401,7 @@
             justify-content: space-between;
             align-items: center;
         }
-        
+
         .modal-close {
             background: none;
             border: none;
@@ -369,19 +416,19 @@
             justify-content: center;
             transition: color 0.2s;
         }
-        
+
         .modal-close:hover {
             color: #e0e0e0;
         }
-        
+
         .modal-body {
             color: #e0e0e0;
         }
-        
+
         .modal-section {
             margin-bottom: 24px;
         }
-        
+
         .modal-section-title {
             font-size: 13px;
             font-weight: 600;
@@ -390,7 +437,7 @@
             letter-spacing: 0.5px;
             margin-bottom: 12px;
         }
-        
+
         .token-display {
             background: #1a1a1a;
             border: 1px solid #333;
@@ -404,7 +451,7 @@
             overflow-x: auto;
             position: relative;
         }
-        
+
         .copy-btn {
             position: absolute;
             top: 8px;
@@ -419,15 +466,15 @@
             opacity: 0;
             transition: opacity 0.2s;
         }
-        
+
         .token-display:hover .copy-btn {
             opacity: 1;
         }
-        
+
         .copy-btn:hover {
             background: #0050b3;
         }
-        
+
         .loader {
             display: inline-block;
             width: 16px;
@@ -439,14 +486,18 @@
             margin-right: 8px;
             vertical-align: middle;
         }
-        
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
         .modal-footer {
             display: flex;
             gap: 10px;
             margin-top: 24px;
             justify-content: flex-end;
         }
-        
+
         .provision-status {
             display: flex;
             align-items: center;
@@ -456,34 +507,34 @@
             margin-bottom: 16px;
             font-size: 13px;
         }
-        
+
         .provision-status.loading {
             color: #1890ff;
         }
-        
+
         .provision-status.success {
             color: #52c41a;
         }
-        
+
         .provision-status.error {
             color: #ff7875;
         }
-        
+
         .provision-step {
             display: none;
         }
-        
+
         .provision-step.active {
             display: block;
         }
-        
+
         .step-indicator {
             display: flex;
             gap: 12px;
             margin-bottom: 24px;
             justify-content: center;
         }
-        
+
         .step-dot {
             width: 40px;
             height: 40px;
@@ -497,28 +548,38 @@
             color: #888;
             transition: all 0.3s ease;
         }
-        
+
         .step-dot.active {
             background: #1890ff;
             border-color: #1890ff;
             color: #fff;
         }
-        
+
         .step-dot.completed {
             background: #52c41a;
             border-color: #52c41a;
             color: #fff;
         }
-        
+
         .step-line {
             flex: 1;
             height: 2px;
             background: #333;
             margin-top: 19px;
         }
-        
+
         .step-line.completed {
             background: #52c41a;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #333;
+            border-top-color: #1890ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
         }
     </style>
 </head>
@@ -528,160 +589,192 @@
         <p class="subtitle">System Monitoring & Device Status</p>
     </div>
 
-    <div class="dashboard">
-        <!-- Top Row: Key Metrics -->
-        <div class="panel">
-            <div class="panel-title">Memory</div>
-            <div class="panel-content">
-                <div class="metric-box">
-                    <div class="metric-value" id="ramDisplay">--</div>
-                    <div class="metric-label">RAM Usage</div>
+    <!-- STATE 1: UNCLAIMED (No WiFi password) -->
+    <div id="stateUnclaimed" class="state-screen">
+        <h2>🔓 Device Unclaimed</h2>
+        <p>This MASTR token is running in OPEN mode (no WiFi password).<br>
+           To secure the device, you must claim it first.</p>
+        <p style="font-size: 14px; color: #666; margin-bottom: 20px;">
+            After claiming, the device will generate a WPA2 password and you'll need to reconnect.
+        </p>
+        <button class="button button-primary" onclick="claimDevice()">Claim Device</button>
+        <div id="claimResult" style="display: none; margin-top: 30px; text-align: left; max-width: 500px; margin-left: auto; margin-right: auto;">
+            <div style="background: #1a1a1a; padding: 20px; border-radius: 4px; border: 1px solid #333;">
+                <div style="margin-bottom: 15px;">
+                    <strong style="color: #52c41a;">✓ Device Claimed Successfully</strong>
                 </div>
-            </div>
-        </div>
-
-        <div class="panel">
-            <div class="panel-title">CPU Usage</div>
-            <div class="panel-content">
-                <div class="metric-box">
-                    <div class="metric-value orange" id="cpuDisplay">--</div>
-                    <div class="metric-label">CPU Percent</div>
+                <div style="margin-bottom: 10px;">
+                    <strong>SSID:</strong> <span id="claimSSID">--</span>
                 </div>
-            </div>
-        </div>
-
-        <div class="panel">
-            <div class="panel-title">Uptime</div>
-            <div class="panel-content">
-                <div class="metric-box">
-                    <div class="metric-value blue" id="uptimeDisplay">--</div>
-                    <div class="metric-label">Seconds</div>
+                <div style="margin-bottom: 10px;">
+                    <strong>New Password:</strong>
                 </div>
-            </div>
-        </div>
-
-        <div class="panel">
-            <div class="panel-title">Temperature</div>
-            <div class="panel-content">
-                <div class="metric-box">
-                    <div class="metric-value purple" id="tempDisplay">--</div>
-                    <div class="metric-label">Celsius</div>
+                <div style="background: #0d0d0d; padding: 12px; border-radius: 3px; font-family: monospace; font-size: 14px; color: #52c41a; margin-bottom: 15px;">
+                    <span id="claimPassword">--</span>
                 </div>
-            </div>
-        </div>
-
-        <!-- Status Panels -->
-        <div class="panel wide">
-            <div class="panel-title">System Status</div>
-            <div class="panel-content" style="flex-direction: column; gap: 20px;">
-                <div style="display: flex; flex-direction: row; justify-content: space-around; align-items: center; gap: 20px;">
-                    <div>
-                        <span class="status-indicator ok" id="provisioningIndicator"></span>
-                        <span id="statusText" style="font-size: 13px;">Checking...</span>
-                    </div>
-                    <div>
-                        <span class="status-indicator ok" id="wifiIndicator"></span>
-                        <span id="wifiStatus" style="font-size: 13px;">Wi-Fi Status</span>
-                    </div>
-                    <div>
-                        <span class="status-indicator ok" id="networkIndicator"></span>
-                        <span id="networkStatus" style="font-size: 13px;">Network Status</span>
-                    </div>
+                <div style="font-size: 13px; color: #888;">
+                    <strong>Next steps:</strong><br>
+                    1. Copy the password above<br>
+                    2. Wait for AP to restart (~<span id="claimGraceMs">750</span>ms)<br>
+                    3. Reconnect to the SSID with the new password<br>
+                    4. Refresh this page and provision the device
                 </div>
-                <div style="display: flex; justify-content: center;">
-                    <button id="provisionBtn" class="button button-primary" onclick="openProvisioningModal()">Provision Device</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Network Info -->
-        <div class="panel wide">
-            <div class="panel-title">Network Information</div>
-            <div class="panel-content" style="flex-direction: column; justify-content: flex-start; align-items: flex-start; gap: 12px;">
-                <div class="info-text">
-                    <strong>SSID:</strong> <span id="networkSSID">--</span>
-                </div>
-                <div class="info-text">
-                    <strong>Security:</strong> <span id="networkSecurity">--</span>
-                </div>
-                <div class="info-text">
-                    <strong>AP IP:</strong> <span id="networkIP">--</span>
-                </div>
-                <div class="info-text">
-                    <strong>Connected Clients:</strong> <span id="clientCount">0</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Wi-Fi Configuration -->
-        <div class="panel wide">
-            <div class="panel-title">Wi-Fi Configuration</div>
-            <div class="panel-content" style="flex-direction: column; justify-content: flex-start; align-items: flex-start; gap: 12px;">
-                <div class="info-text">
-                    <strong>Configured:</strong> <span id="wifiConfigured">--</span>
-                </div>
-                <div id="claimResult" style="display: none; width: 100%;">
-                    <div class="info-text">
-                        <strong>New Password:</strong>
-                    </div>
-                    <div style="background: #1a1a1a; padding: 8px; border-radius: 3px; margin-top: 8px; font-family: monospace; font-size: 11px; color: #52c41a;">
-                        <span id="newPassword">--</span>
-                    </div>
-                    <div class="info-text" style="margin-top: 8px;">
-                        <span id="reconnectHint">AP will restart soon. Reconnect using the password above.</span>
-                    </div>
-                </div>
-                <button id="configureBtn" class="button button-primary" onclick="configureWifi()">Configure Wi-Fi</button>
-            </div>
-        </div>
-
-        <!-- Device Info -->
-        <div class="panel wide">
-            <div class="panel-title">Device Information</div>
-            <div class="panel-content" style="flex-direction: column; justify-content: flex-start; align-items: flex-start; gap: 12px;">
-                <div class="info-text">
-                    <strong>State:</strong> <span id="state">--</span>
-                </div>
-                <div class="info-text">
-                    <strong>IP Address:</strong> <span id="ipAddress">--</span>
-                </div>
-                <div class="info-text">
-                    <strong>RAM Usage:</strong> <span id="ramUsed">--</span> KB / <span id="ramTotal">--</span> KB
-                </div>
-            </div>
-        </div>
-
-        <!-- Connected Clients List -->
-        <div class="panel wide">
-            <div class="panel-title">Connected Clients</div>
-            <div class="panel-content" style="flex-direction: column; justify-content: flex-start; align-items: flex-start; gap: 8px; overflow-y: auto;">
-                <div id="clientsList" style="width: 100%; font-size: 12px; color: #888;">
-                    <em>No connected clients</em>
-                </div>
-            </div>
-        </div>
-
-        <!-- Action Buttons -->
-        <div class="panel wide">
-            <div class="panel-title">Actions</div>
-            <div class="panel-content" style="flex-direction: row; gap: 10px; justify-content: center;">
-                <button class="button button-primary" onclick="refreshStatus()" style="flex: 1;">Refresh Status</button>
-                <button class="button button-secondary" onclick="testPing()" style="flex: 1;">Test Ping</button>
-                <button class="button button-secondary" onclick="resetToken()" style="flex: 1;">Reset Token</button>
             </div>
         </div>
     </div>
 
+    <!-- STATE 2: CLAIMED (Password set, not provisioned) -->
+    <div id="stateClaimed" class="state-screen">
+        <h2>🔐 Device Claimed, Not Provisioned</h2>
+        <p>Your device is secured with WPA2 but not yet provisioned.<br>
+           Complete the provisioning process to enable attestation.</p>
+        <button class="button button-primary" onclick="openProvisioningModal()">Provision Device</button>
+        <div style="margin-top: 30px;">
+            <button class="button button-secondary" onclick="resetDevice()">Reset Device (DEBUG)</button>
+        </div>
+    </div>
+
+    <!-- STATE 3: PROVISIONED (Full dashboard) -->
+    <div id="stateProvisioned" style="display: none;">
+        <div class="dashboard">
+            <!-- Top Row: Key Metrics -->
+            <div class="panel">
+                <div class="panel-title">Memory</div>
+                <div class="panel-content">
+                    <div class="metric-box">
+                        <div class="metric-value" id="ramDisplay">--</div>
+                        <div class="metric-label">RAM Usage</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">CPU Usage</div>
+                <div class="panel-content">
+                    <div class="metric-box">
+                        <div class="metric-value orange" id="cpuDisplay">--</div>
+                        <div class="metric-label">CPU Percent</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">Uptime</div>
+                <div class="panel-content">
+                    <div class="metric-box">
+                        <div class="metric-value blue" id="uptimeDisplay">--</div>
+                        <div class="metric-label">Seconds</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">Temperature</div>
+                <div class="panel-content">
+                    <div class="metric-box">
+                        <div class="metric-value purple" id="tempDisplay">--</div>
+                        <div class="metric-label">Celsius</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status Panels -->
+            <div class="panel wide">
+                <div class="panel-title">System Status</div>
+                <div class="panel-content" style="flex-direction: column; gap: 20px;">
+                    <div style="display: flex; flex-direction: row; justify-content: space-around; align-items: center; gap: 20px;">
+                        <div>
+                            <span class="status-indicator ok" id="provisioningIndicator"></span>
+                            <span id="statusText" style="font-size: 13px;">Provisioned ✓</span>
+                        </div>
+                        <div>
+                            <span class="status-indicator ok" id="wifiIndicator"></span>
+                            <span id="wifiStatus" style="font-size: 13px;">Wi-Fi Secured</span>
+                        </div>
+                        <div>
+                            <span class="status-indicator ok" id="networkIndicator"></span>
+                            <span id="networkStatus" style="font-size: 13px;">Network Status</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; justify-content: center; gap: 10px;">
+                        <button class="button button-secondary" onclick="openProvisioningModal()">Re-Provision (DEBUG)</button>
+                        <button class="button button-danger" onclick="resetDevice()">Reset Device (DEBUG)</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Network Info -->
+            <div class="panel wide">
+                <div class="panel-title">Network Information</div>
+                <div class="panel-content" style="flex-direction: column; justify-content: flex-start; align-items: flex-start; gap: 12px;">
+                    <div class="info-text">
+                        <strong>SSID:</strong> <span id="networkSSID">--</span>
+                    </div>
+                    <div class="info-text">
+                        <strong>Security:</strong> <span id="networkSecurity">WPA2-PSK</span>
+                    </div>
+                    <div class="info-text">
+                        <strong>AP IP:</strong> <span id="networkIP">192.168.4.1</span>
+                    </div>
+                    <div class="info-text">
+                        <strong>Connected Clients:</strong> <span id="clientCount">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Device Info -->
+            <div class="panel wide">
+                <div class="panel-title">Device Information</div>
+                <div class="panel-content" style="flex-direction: column; justify-content: flex-start; align-items: flex-start; gap: 12px;">
+                    <div class="info-text">
+                        <strong>State:</strong> <span id="state">--</span>
+                    </div>
+                    <div class="info-text">
+                        <strong>IP Address:</strong> <span id="ipAddress">192.168.4.1</span>
+                    </div>
+                    <div class="info-text">
+                        <strong>RAM Usage:</strong> <span id="ramUsed">--</span> KB / <span id="ramTotal">--</span> KB
+                    </div>
+                </div>
+            </div>
+
+            <!-- Connected Clients List -->
+            <div class="panel wide">
+                <div class="panel-title">Connected Clients</div>
+                <div class="panel-content" style="flex-direction: column; justify-content: flex-start; align-items: flex-start; gap: 8px; overflow-y: auto;">
+                    <div id="clientsList" style="width: 100%; font-size: 12px; color: #888;">
+                        <em>No connected clients</em>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="panel wide">
+                <div class="panel-title">Actions</div>
+                <div class="panel-content" style="flex-direction: row; gap: 10px; justify-content: center;">
+                    <button class="button button-primary" onclick="refreshStatus()" style="flex: 1;">Refresh Status</button>
+                    <button class="button button-secondary" onclick="testPing()" style="flex: 1;">Test Ping</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading State -->
+    <div id="stateLoading" class="state-screen active">
+        <div class="loading-spinner"></div>
+        <p style="margin-top: 20px;">Detecting device state...</p>
+    </div>
+
     <div class="message" id="message"></div>
 
-    <!-- Provisioning Modal -->
+    <!-- Provisioning Modal (same as before, but will only show in STATE 2 or STATE 3 DEBUG) -->
     <div class="modal" id="provisioningModal">
         <div class="modal-content">
             <div class="modal-header">
                 <span>🔐 Device Provisioning</span>
                 <button class="modal-close" onclick="closeProvisioningModal()">✕</button>
             </div>
-            
+
             <!-- Step Indicator -->
             <div class="step-indicator">
                 <div class="step-dot active" id="stepDot1">1</div>
@@ -690,90 +783,90 @@
                 <div class="step-line" id="stepLine2"></div>
                 <div class="step-dot" id="stepDot3">3</div>
             </div>
-            
+
             <div class="modal-body">
                 <!-- Step 1: Token Info -->
                 <div class="provision-step active" id="step1">
                     <div class="modal-section">
                         <div class="modal-section-title">Step 1: Device Token Public Key</div>
                         <p style="margin-bottom: 16px; font-size: 12px; color: #888;">Your device's unique token public key. Share this with your provisioning service to get the host public key and golden hash.</p>
-                        
+
                         <div id="tokenStatus" class="provision-status loading" style="display:none;">
                             <span class="loader"></span>
                             <span id="tokenStatusText">Loading token information...</span>
                         </div>
-                        
+
                         <div id="tokenError" class="provision-status error" style="display:none;">
                             <span id="tokenErrorText">Failed to load token</span>
                         </div>
-                        
+
                         <div id="tokenContainer" style="display:none;">
                             <div class="token-display" id="tokenPublicKey">
                                 <button class="copy-btn" onclick="copyToClipboard('tokenPublicKey')">Copy</button>
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="modal-footer">
                         <button class="button button-secondary" onclick="closeProvisioningModal()">Cancel</button>
                         <button class="button button-primary" id="step1NextBtn" onclick="goToStep(2)" style="display:none;">Next</button>
                     </div>
                 </div>
-                
+
                 <!-- Step 2: Host Public Key -->
                 <div class="provision-step" id="step2">
                     <div class="modal-section">
                         <div class="modal-section-title">Step 2: Host Public Key</div>
                         <p style="margin-bottom: 12px; font-size: 12px; color: #888;">Paste the host public key from your provisioning service (128 hex characters):</p>
-                        
-                        <textarea id="hostPublicKeyInput" 
+
+                        <textarea id="hostPublicKeyInput"
                             style="width: 100%; height: 100px; background: #1a1a1a; border: 1px solid #333; border-radius: 3px; padding: 12px; color: #52c41a; font-family: monospace; font-size: 11px; resize: none;"
                             placeholder="Paste 128-character hex string..."></textarea>
-                        
+
                         <div id="hostKeyStatus" class="provision-status" style="display:none; margin-top: 12px;">
                             <span id="hostKeyStatusText"></span>
                         </div>
                     </div>
-                    
+
                     <div class="modal-footer">
                         <button class="button button-secondary" onclick="goToStep(1)">Back</button>
                         <button class="button button-secondary" onclick="closeProvisioningModal()">Cancel</button>
                         <button class="button button-primary" id="step2SubmitBtn" onclick="submitStep2()">Submit & Verify</button>
                     </div>
                 </div>
-                
+
                 <!-- Step 3: Golden Hash -->
                 <div class="provision-step" id="step3">
                     <div class="modal-section">
                         <div class="modal-section-title">Step 3: Golden Hash</div>
                         <p style="margin-bottom: 12px; font-size: 12px; color: #888;">Paste the golden hash from your provisioning service (64 hex characters):</p>
-                        
-                        <textarea id="goldenHashInput" 
+
+                        <textarea id="goldenHashInput"
                             style="width: 100%; height: 100px; background: #1a1a1a; border: 1px solid #333; border-radius: 3px; padding: 12px; color: #52c41a; font-family: monospace; font-size: 11px; resize: none;"
                             placeholder="Paste 64-character hex string..."></textarea>
-                        
+
                         <div id="hashStatus" class="provision-status" style="display:none; margin-top: 12px;">
                             <span id="hashStatusText"></span>
                         </div>
                     </div>
-                    
+
                     <div class="modal-footer">
                         <button class="button button-secondary" onclick="goToStep(2)">Back</button>
                         <button class="button button-secondary" onclick="closeProvisioningModal()">Cancel</button>
                         <button class="button button-primary" id="step3SubmitBtn" onclick="submitStep3()">Complete Provisioning</button>
                     </div>
                 </div>
-                
+
                 <!-- Provisioning Complete -->
                 <div class="provision-step" id="stepComplete">
                     <div style="text-align: center; padding: 40px 0;">
                         <div style="font-size: 48px; margin-bottom: 20px;">✓</div>
                         <div class="modal-section-title" style="color: #52c41a; font-size: 16px; text-transform: none; margin-bottom: 12px;">Provisioning Complete!</div>
-                        <p style="font-size: 12px; color: #888;">Your device has been successfully provisioned. The dashboard will refresh shortly.</p>
+                        <p style="font-size: 12px; color: #888;">Your device has been successfully provisioned. Please reboot the device to enter runtime state.</p>
                     </div>
-                    
+
                     <div class="modal-footer" style="justify-content: center;">
-                        <button class="button button-primary" onclick="closeProvisioningModal(); refreshStatus();">Close</button>
+                        <button class="button button-primary" onclick="closeProvisioningModal(); location.reload();">Close & Refresh</button>
                     </div>
                 </div>
             </div>
@@ -781,9 +874,137 @@
     </div>
 
     <script>
-        // ============ Bearer Token Management ============
+        // ============ State Management ============
+        const DeviceState = {
+            LOADING: 'loading',
+            UNCLAIMED: 'unclaimed',     // No WiFi password
+            CLAIMED: 'claimed',         // WiFi password set, not provisioned
+            PROVISIONED: 'provisioned'  // Provisioned and ready
+        };
+
+        let currentDeviceState = DeviceState.LOADING;
         let currentBearerToken = null;
 
+        function showState(state) {
+            console.log(`[State] Switching to: ${state}`);
+            currentDeviceState = state;
+
+            // Hide all states
+            document.getElementById('stateLoading').classList.remove('active');
+            document.getElementById('stateUnclaimed').classList.remove('active');
+            document.getElementById('stateClaimed').classList.remove('active');
+            document.getElementById('stateProvisioned').style.display = 'none';
+
+            // Show appropriate state
+            switch (state) {
+                case DeviceState.LOADING:
+                    document.getElementById('stateLoading').classList.add('active');
+                    break;
+                case DeviceState.UNCLAIMED:
+                    document.getElementById('stateUnclaimed').classList.add('active');
+                    break;
+                case DeviceState.CLAIMED:
+                    document.getElementById('stateClaimed').classList.add('active');
+                    break;
+                case DeviceState.PROVISIONED:
+                    document.getElementById('stateProvisioned').style.display = 'block';
+                    break;
+            }
+        }
+
+        async function detectDeviceState() {
+            console.log('[State] Detecting device state...');
+
+            // Step 1: Check if we need to get a bearer token
+            if (!currentBearerToken) {
+                let tokenAlreadyGenerated = false;
+                try {
+                    const tokenGenResponse = await fetch('http://192.168.4.1/api/auth/generate-token', {
+                        method: 'POST'
+                    });
+
+                    if (tokenGenResponse.status === 404) {
+                        // Token generation not available → UNCLAIMED (STATE 1)
+                        console.log('[State] Detected UNCLAIMED state (no bearer token endpoint)');
+                        showState(DeviceState.UNCLAIMED);
+                        return;
+                    }
+
+                    // Token generation exists
+                    if (tokenGenResponse.status === 409) {
+                        // Token already generated, need manual entry
+                        console.log('[State] Token already generated, will prompt user');
+                        tokenAlreadyGenerated = true;
+                    } else if (tokenGenResponse.ok) {
+                        const data = await tokenGenResponse.json();
+                        if (data.bearer_token) {
+                            setBearerToken(data.bearer_token);
+                            console.log('[Auth] Bearer token generated successfully');
+                            // Show token to user for copying
+                            showBearerTokenDisplay(data.bearer_token);
+                        }
+                    } else {
+                        console.warn('[Auth] Unexpected token generation response:', tokenGenResponse.status);
+                    }
+                } catch (error) {
+                    console.error('[State] Token generation check failed:', error);
+                    showMessage('Failed to connect to device', 'error');
+                    return;
+                }
+
+                // If we still don't have a token, handle it
+                if (!currentBearerToken) {
+                    if (tokenAlreadyGenerated) {
+                        // Show token prompt and wait for user to submit
+                        console.log('[State] Showing token prompt');
+                        showTokenPrompt(() => {
+                            // After token is submitted, continue detection
+                            detectDeviceState();
+                        });
+                        return; // Stop here, will restart after token submission
+                    } else {
+                        // This shouldn't happen, but handle it gracefully
+                        console.error('[State] No bearer token but no 409 error - unexpected state');
+                        showMessage('Failed to authenticate with device', 'error');
+                        return;
+                    }
+                }
+            } else {
+                console.log('[State] Bearer token already set, skipping token generation');
+            }
+
+            // Step 3: Check if status endpoint is available (STATE 3: PROVISIONED)
+            try {
+                const statusResponse = await fetchWithAuth('http://192.168.4.1/api/status');
+                if (statusResponse.ok) {
+                    console.log('[State] Detected PROVISIONED state (status endpoint available)');
+                    showState(DeviceState.PROVISIONED);
+                    startMonitoring();
+                    return;
+                }
+            } catch (error) {
+                console.log('[State] Status endpoint not available:', error);
+            }
+
+            // Step 4: Check if provision endpoints are available (STATE 2: CLAIMED)
+            try {
+                const provisionResponse = await fetchWithAuth('http://192.168.4.1/api/provision/token_info');
+                if (provisionResponse.ok) {
+                    console.log('[State] Detected CLAIMED state (provision endpoints available)');
+                    showState(DeviceState.CLAIMED);
+                    return;
+                }
+            } catch (error) {
+                console.log('[State] Provision endpoint not available:', error);
+            }
+
+            // Unknown state - show error
+            console.error('[State] Unable to determine device state');
+            showMessage('Unable to determine device state', 'error');
+            showState(DeviceState.LOADING);
+        }
+
+        // ============ Bearer Token Management ============
         function setBearerToken(token) {
             currentBearerToken = token;
         }
@@ -806,13 +1027,14 @@
             return fetch(url, options);
         }
 
-        async function generateBearerToken() {
+        async function generateAndSetBearerToken() {
             try {
                 const response = await fetch('http://192.168.4.1/api/auth/generate-token', {
                     method: 'POST'
                 });
                 if (response.status === 409) {
-                    throw new Error('A token was already generated for this session. Enter the existing token manually.');
+                    // Token already generated - need to prompt user for manual entry
+                    throw new Error('TOKEN_ALREADY_GENERATED');
                 }
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
@@ -821,167 +1043,202 @@
                 if (!data.bearer_token) {
                     throw new Error('No bearer token in response');
                 }
+                setBearerToken(data.bearer_token);
+                console.log('[Auth] Bearer token generated successfully');
                 return data.bearer_token;
             } catch (error) {
-                throw new Error(`Failed to generate token: ${error.message}`);
+                throw error;
             }
         }
 
-        async function initializeTokenAuth() {
-            return new Promise((resolve) => {
-                showTokenSetupModal(() => {
-                    if (!currentBearerToken) {
-                        showMessage('Bearer token required to continue', 'error');
-                        return;
-                    }
-                    resolve(true);
-                });
-            });
+        function showTokenPrompt(onComplete) {
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;z-index:9999';
+            modal.innerHTML = `
+                <div style="background:#262626;border-radius:8px;padding:32px;max-width:500px;border:1px solid #333">
+                    <h2 style="margin-bottom:16px;color:#fff;font-size:20px">🔐 Bearer Token Required</h2>
+                    <p style="margin-bottom:20px;font-size:14px;color:#888">
+                        A bearer token has already been generated for this session.
+                        Please enter it below, or reboot the device to generate a new one.
+                    </p>
+
+                    <textarea id="manualTokenInput" placeholder="Paste your 64-character bearer token..."
+                        style="width:100%;height:80px;background:#1a1a1a;border:1px solid #333;border-radius:4px;padding:12px;color:#52c41a;font-family:monospace;font-size:11px;resize:none;margin-bottom:12px"></textarea>
+
+                    <div style="display:flex;gap:10px">
+                        <button onclick="submitManualTokenFromPrompt()"
+                            style="flex:1;padding:10px;background:#1890ff;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600">
+                            Submit Token
+                        </button>
+                        <button onclick="window.location.reload()"
+                            style="flex:1;padding:10px;background:#434343;color:#e0e0e0;border:none;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600">
+                            Refresh Page
+                        </button>
+                    </div>
+
+                    <div id="tokenPromptError" style="display:none;margin-top:12px;padding:10px;background:#58181c;border:1px solid #ff7875;border-radius:4px;color:#ff7875;font-size:12px"></div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+            window.tokenPromptModal = modal;
+            window.tokenPromptCallback = onComplete;
         }
 
-        function showTokenSetupModal(callback) {
+        function submitManualTokenFromPrompt() {
+            const token = document.getElementById('manualTokenInput').value.trim();
+            const errorDiv = document.getElementById('tokenPromptError');
+
+            if (!token) {
+                errorDiv.textContent = 'Please enter a token';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            if (token.length !== 64) {
+                errorDiv.textContent = 'Token must be 64 characters';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            if (!/^[0-9a-fA-F]{64}$/i.test(token)) {
+                errorDiv.textContent = 'Token must be valid hex characters';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            setBearerToken(token);
+
+            // Close modal
+            if (window.tokenPromptModal) {
+                window.tokenPromptModal.remove();
+            }
+
+            // Trigger callback
+            if (window.tokenPromptCallback) {
+                window.tokenPromptCallback();
+            }
+        }
+
+        function showBearerTokenDisplay(token) {
             const modal = document.createElement('div');
-            modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999';
+            modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center;z-index:9999';
             modal.innerHTML = `
-                <div id="tokenModalContent" style="background:#262626;border-radius:12px;padding:40px;max-width:500px;box-shadow:0 20px 60px rgba(0,0,0,0.5);border:1px solid #333">
-                    <h2 style="margin-bottom:20px;color:#fff">🔐 Bearer Token Setup</h2>
-                    <p style="margin-bottom:20px;font-size:14px;color:#999">Set up your API authentication token.</p>
-                    
-                    <!-- Generate Tab -->
-                    <div id="generateTab" style="display:block">
-                        <p style="margin-bottom:15px;font-size:12px;color:#888">Option 1: Generate a new token</p>
-                        <button onclick="startGenerateToken()" style="width:100%;padding:10px;background:#1890ff;color:white;border:none;border-radius:4px;cursor:pointer;margin-bottom:20px">Generate New Token</button>
-                        
-                        <div style="text-align:center;color:#666;margin-bottom:20px">or</div>
-                        
-                        <p style="margin-bottom:15px;font-size:12px;color:#888">Option 2: Enter an existing token</p>
-                        <textarea id="manualTokenInput" placeholder="Paste your 64-character bearer token..." style="width:100%;height:80px;background:#1e1e1e;border:1px solid #444;border-radius:4px;padding:10px;color:#0f0;font-family:monospace;font-size:11px;resize:none;margin-bottom:10px"></textarea>
-                        <button onclick="submitManualToken()" style="width:100%;padding:10px;background:#4CAF50;color:white;border:none;border-radius:4px;cursor:pointer">Use This Token</button>
+                <div style="background:#262626;border-radius:8px;padding:32px;max-width:600px;border:1px solid #333">
+                    <h2 style="margin-bottom:16px;color:#fff;font-size:20px">🔐 Bearer Token Generated</h2>
+                    <p style="margin-bottom:20px;font-size:14px;color:#888">
+                        <strong style="color:#faad14;">⚠️ Important:</strong> Copy this token now! It will only be shown once.
+                        You'll need it to access the device until you reboot.
+                    </p>
+
+                    <div style="position:relative;background:#1a1a1a;border:1px solid #333;border-radius:4px;padding:12px;margin-bottom:20px">
+                        <div style="font-family:monospace;font-size:11px;color:#52c41a;word-break:break-all;line-height:1.5;padding-right:60px">
+                            ${token}
+                        </div>
+                        <button onclick="copyBearerToken('${token}')"
+                            style="position:absolute;top:8px;right:8px;background:#1890ff;border:none;color:#fff;padding:6px 12px;border-radius:3px;font-size:11px;cursor:pointer;font-weight:600">
+                            Copy
+                        </button>
                     </div>
-                    
-                    <!-- Generating Tab -->
-                    <div id="generatingTab" style="display:none">
-                        <div id="tokenStatus" style="text-align:center;margin:20px 0">
-                            <p style="color:#667eea">Generating token...</p>
-                        </div>
-                        <div id="tokenSuccess" style="display:none">
-                            <p style="margin-bottom:10px;font-size:12px;color:#888">Your token:</p>
-                            <input type="text" id="generatedToken" readonly style="width:100%;padding:10px;margin-bottom:10px;border:1px solid #444;border-radius:4px;font-family:monospace;font-size:11px;background:#1e1e1e;color:#0f0">
-                            <button onclick="copyToken()" style="width:100%;padding:10px;background:#667eea;color:white;border:none;border-radius:4px;cursor:pointer;margin-bottom:10px">Copy Token</button>
-                            <button onclick="completeSetup()" style="width:100%;padding:10px;background:#4CAF50;color:white;border:none;border-radius:4px;cursor:pointer">Done</button>
-                        </div>
+
+                    <div style="display:flex;gap:10px">
+                        <button onclick="closeBearerTokenDisplay()"
+                            style="flex:1;padding:10px;background:#1890ff;color:white;border:none;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600">
+                            I've Copied It
+                        </button>
                     </div>
                 </div>
             `;
-            
-            // Prevent modal from closing when clicking/dragging inside the content
-            modal.addEventListener('mousedown', function(e) {
-                if (e.target === modal) {
-                    e.preventDefault();
-                }
-            });
-            
+
             document.body.appendChild(modal);
-            window.tokenModal = modal;
-            window.tokenCallback = callback;
+            window.bearerTokenModal = modal;
         }
 
-        function startGenerateToken() {
-            document.getElementById('generateTab').style.display = 'none';
-            document.getElementById('generatingTab').style.display = 'block';
-            
-            generateBearerToken()
-                .then(token => {
-                    setBearerToken(token);
-                    document.getElementById('tokenStatus').style.display = 'none';
-                    document.getElementById('tokenSuccess').style.display = 'block';
-                    document.getElementById('generatedToken').value = token;
-                })
-                .catch(error => {
-                    document.getElementById('tokenStatus').innerHTML = `<p style="color:#d32f2f">Error: ${error.message}</p>`;
-                });
-        }
-
-        function submitManualToken() {
-            const token = document.getElementById('manualTokenInput').value.trim();
-            
-            if (!token) {
-                showMessage('Please enter a token', 'error');
-                return;
-            }
-            
-            if (token.length !== 64) {
-                showMessage('Token must be 64 characters', 'error');
-                return;
-            }
-            
-            if (!/^[0-9a-fA-F]{64}$/i.test(token)) {
-                showMessage('Token must be valid hex characters', 'error');
-                return;
-            }
-            
-            setBearerToken(token);
-            showMessage('Token accepted for this session', 'success');
-            
-            // Close modal and trigger callback
-            setTimeout(() => {
-                completeSetup();
-            }, 500);
-        }
-
-        function copyToken() {
-            const token = document.getElementById('generatedToken').value || currentBearerToken || '';
+        function copyBearerToken(token) {
             navigator.clipboard.writeText(token).then(() => {
-                showMessage('Token copied!', 'success');
+                showMessage('Bearer token copied to clipboard!', 'success');
             }).catch(() => {
-                showMessage('Failed to copy', 'error');
+                showMessage('Failed to copy token', 'error');
             });
         }
 
-        function completeSetup() {
-            if (!currentBearerToken) {
-                showMessage('Bearer token is required before continuing', 'error');
+        function closeBearerTokenDisplay() {
+            if (window.bearerTokenModal) {
+                window.bearerTokenModal.remove();
+                window.bearerTokenModal = null;
+            }
+        }
+
+        // ============ State-Specific Actions ============
+
+        // STATE 1: Claim Device
+        async function claimDevice() {
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = 'Claiming...';
+
+            try {
+                const response = await fetch('http://192.168.4.1/api/claim', {
+                    method: 'POST'
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.status === 'ok') {
+                    // Show claim result
+                    document.getElementById('claimSSID').textContent = data.ssid || 'MASTR-Token';
+                    document.getElementById('claimPassword').textContent = data.new_password || '--';
+                    document.getElementById('claimGraceMs').textContent = data.reconnect_in_ms || 750;
+                    document.getElementById('claimResult').style.display = 'block';
+
+                    btn.style.display = 'none';
+                    showMessage('Device claimed successfully! Reconnect with new password.', 'success');
+                } else {
+                    throw new Error('Claim failed');
+                }
+            } catch (error) {
+                console.error('[Claim] Error:', error);
+                showMessage(`Claim failed: ${error.message}`, 'error');
+                btn.disabled = false;
+                btn.textContent = 'Claim Device';
+            }
+        }
+
+        // STATE 2: Provision Device (opens modal)
+        // STATE 3: Re-provision (DEBUG)
+        // (Uses existing provisioning modal code)
+
+        // Reset Device (DEBUG - available in STATE 2 and STATE 3)
+        async function resetDevice() {
+            if (!confirm('Are you sure you want to reset this device? This will clear all provisioning data and WiFi password.')) {
                 return;
             }
-            if (window.tokenModal) {
-                window.tokenModal.remove();
-            }
-            if (window.tokenCallback) {
-                window.tokenCallback();
-            }
-        }
 
-        function resetToken() {
-            if (confirm('Clear the current bearer token and enter a new one?')) {
-                clearBearerToken();
-                showMessage('Token cleared. Please enter a new token.', 'success');
-                initializeTokenAuth().then(() => {
-                    refreshStatus();
+            try {
+                const response = await fetchWithAuth('http://192.168.4.1/api/provision/reset', {
+                    method: 'POST'
                 });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                showMessage('Device reset successful. Please reboot the device.', 'success');
+
+                setTimeout(() => {
+                    location.reload();
+                }, 2000);
+            } catch (error) {
+                console.error('[Reset] Error:', error);
+                showMessage(`Reset failed: ${error.message}`, 'error');
             }
         }
-        // ============ End Bearer Token Management ============
 
-        function showMessage(text, type) {
-            const msg = document.getElementById('message');
-            msg.textContent = text;
-            msg.className = `message show ${type}`;
-            setTimeout(() => {
-                msg.className = 'message';
-            }, 3000);
-        }
-
-        function copyToClipboard(elementId) {
-            const element = document.getElementById(elementId);
-            const text = element.textContent;
-            navigator.clipboard.writeText(text).then(() => {
-                showMessage('Copied to clipboard!', 'success');
-            }).catch(() => {
-                showMessage('Failed to copy', 'error');
-            });
-        }
-
-        // Global state for provisioning
+        // ============ Provisioning Modal (same as before) ============
         let provisioningState = {
             currentStep: 1,
             tokenPublicKey: null,
@@ -996,13 +1253,13 @@
                 hostPublicKey: null,
                 goldenHash: null
             };
-            
+
             // Reset all steps
             document.getElementById('hostPublicKeyInput').value = '';
             document.getElementById('goldenHashInput').value = '';
             document.getElementById('hostKeyStatus').style.display = 'none';
             document.getElementById('hashStatus').style.display = 'none';
-            
+
             const modal = document.getElementById('provisioningModal');
             modal.classList.add('show');
             goToStep(1);
@@ -1019,7 +1276,7 @@
             document.getElementById('step2').classList.remove('active');
             document.getElementById('step3').classList.remove('active');
             document.getElementById('stepComplete').classList.remove('active');
-            
+
             // Update step indicators
             ['step1', 'step2', 'step3'].forEach((s, idx) => {
                 const dot = document.getElementById(`stepDot${idx + 1}`);
@@ -1037,7 +1294,7 @@
                     if (line) line.classList.remove('completed');
                 }
             });
-            
+
             if (step === 1) {
                 document.getElementById('step1').classList.add('active');
                 fetchTokenInfo();
@@ -1048,7 +1305,7 @@
             } else if (step === 4) {
                 document.getElementById('stepComplete').classList.add('active');
             }
-            
+
             provisioningState.currentStep = step;
         }
 
@@ -1057,12 +1314,12 @@
             const tokenError = document.getElementById('tokenError');
             const tokenContainer = document.getElementById('tokenContainer');
             const step1NextBtn = document.getElementById('step1NextBtn');
-            
+
             tokenStatus.style.display = 'flex';
             tokenError.style.display = 'none';
             tokenContainer.style.display = 'none';
             step1NextBtn.style.display = 'block';
-            
+
             fetchWithAuth('http://192.168.4.1/api/provision/token_info')
                 .then(response => {
                     if (response.status === 503) {
@@ -1077,20 +1334,20 @@
                 })
                 .then(data => {
                     if (!data) return; // Retry case
-                    
+
                     if (data.error) {
                         tokenStatus.style.display = 'block';
                         tokenError.style.display = 'flex';
                         document.getElementById('tokenErrorText').textContent = `Error: ${data.error}`;
                         return;
                     }
-                    
+
                     if (data.token_pubkey) {
                         provisioningState.tokenPublicKey = data.token_pubkey;
-                        document.getElementById('tokenPublicKey').innerHTML = 
+                        document.getElementById('tokenPublicKey').innerHTML =
                             `<button class="copy-btn" onclick="copyToClipboard('tokenPublicKey')">Copy</button>
                              ${data.token_pubkey}`;
-                        
+
                         tokenStatus.style.display = 'none';
                         tokenContainer.style.display = 'block';
                         step1NextBtn.style.display = 'block';
@@ -1118,10 +1375,8 @@
 
         function submitStep2() {
             const hostKeyInput = document.getElementById('hostPublicKeyInput').value;
-            console.log('Step 2 input value:', hostKeyInput, 'length:', hostKeyInput.length);
             const hostKeyValidation = validateHex(hostKeyInput, 128);
-            console.log('Validation result:', hostKeyValidation);
-            
+
             if (!hostKeyValidation.valid) {
                 const hostKeyStatus = document.getElementById('hostKeyStatus');
                 hostKeyStatus.className = 'provision-status error';
@@ -1129,23 +1384,23 @@
                 document.getElementById('hostKeyStatusText').textContent = `✗ ${hostKeyValidation.error}`;
                 return;
             }
-            
+
             const submitBtn = document.getElementById('step2SubmitBtn');
             submitBtn.disabled = true;
             submitBtn.textContent = 'Submitting...';
-            
+
             // Show loading status
             const hostKeyStatus = document.getElementById('hostKeyStatus');
             hostKeyStatus.className = 'provision-status loading';
             hostKeyStatus.style.display = 'flex';
             document.getElementById('hostKeyStatusText').innerHTML = '<span class="loader"></span> Verifying host public key...';
-            
+
             submitHostPublicKey(hostKeyValidation.value)
                 .then(() => {
                     provisioningState.hostPublicKey = hostKeyValidation.value;
                     hostKeyStatus.className = 'provision-status success';
                     document.getElementById('hostKeyStatusText').textContent = '✓ Host public key accepted';
-                    
+
                     setTimeout(() => {
                         goToStep(3);
                     }, 800);
@@ -1161,7 +1416,7 @@
         function submitStep3() {
             const goldenHashInput = document.getElementById('goldenHashInput').value;
             const hashValidation = validateHex(goldenHashInput, 64);
-            
+
             if (!hashValidation.valid) {
                 const hashStatus = document.getElementById('hashStatus');
                 hashStatus.className = 'provision-status error';
@@ -1169,26 +1424,25 @@
                 document.getElementById('hashStatusText').textContent = `✗ ${hashValidation.error}`;
                 return;
             }
-            
+
             const submitBtn = document.getElementById('step3SubmitBtn');
             submitBtn.disabled = true;
             submitBtn.textContent = 'Processing...';
-            
+
             // Show loading status
             const hashStatus = document.getElementById('hashStatus');
             hashStatus.className = 'provision-status loading';
             hashStatus.style.display = 'flex';
             document.getElementById('hashStatusText').innerHTML = '<span class="loader"></span> Finalizing provisioning...';
-            
+
             submitGoldenHash(hashValidation.value)
                 .then(() => {
                     provisioningState.goldenHash = hashValidation.value;
                     hashStatus.className = 'provision-status success';
                     document.getElementById('hashStatusText').textContent = '✓ Provisioning complete';
-                    
+
                     setTimeout(() => {
                         goToStep(4);
-                        refreshStatus();
                     }, 800);
                 })
                 .catch(error => {
@@ -1200,7 +1454,6 @@
         }
 
         function submitHostPublicKey(hostKey) {
-            console.log('Submitting host key, length:', hostKey.length);
             return fetchWithAuth('http://192.168.4.1/api/provision/host_pubkey', {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain' },
@@ -1208,14 +1461,10 @@
             })
             .then(response => {
                 return response.text().then(text => {
-                    console.log('Host key response status:', response.status);
-                    console.log('Host key response body:', text);
-                    
-                    // Accept 200-299 (success) and 202 (Accepted)
                     if (response.status < 200 || response.status >= 300) {
                         throw new Error(`HTTP ${response.status}: ${text}`);
                     }
-                    
+
                     try {
                         return JSON.parse(text);
                     } catch (e) {
@@ -1227,7 +1476,6 @@
                 if (data.error) {
                     throw new Error(data.error);
                 }
-                // Poll status until ready
                 return pollHostKeyStatus();
             });
         }
@@ -1250,22 +1498,16 @@
                         return response.json();
                     })
                     .then(data => {
-                        console.log(`[Poll ${attempts}] Host key status:`, data.status);
-
                         if (data.status === 'ready') {
-                            console.log('Host key write successful!');
                             return Promise.resolve();
                         } else if (data.status === 'failed') {
                             throw new Error('Host public key write failed on device');
                         } else if (data.status === 'pending') {
-                            // Still pending, retry with increasing delay (reduced frequency to avoid overwhelming server)
                             const delayMs = Math.min(500 + (attempts * 100), 2000);
-                            console.log(`Host key still pending, retrying in ${delayMs}ms...`);
                             return new Promise(resolve => {
                                 setTimeout(() => poll().then(resolve), delayMs);
                             });
                         } else {
-                            // Unknown status, retry with reasonable delay
                             return new Promise(resolve => {
                                 setTimeout(() => poll().then(resolve), 500);
                             });
@@ -1273,7 +1515,6 @@
                     })
                     .catch(error => {
                         if (attempts < maxAttempts) {
-                            console.log(`Poll error (attempt ${attempts}):`, error.message);
                             return new Promise(resolve => {
                                 setTimeout(() => poll().then(resolve), 500);
                             });
@@ -1294,14 +1535,10 @@
             })
             .then(response => {
                 return response.text().then(text => {
-                    console.log('Golden hash response status:', response.status);
-                    console.log('Golden hash response body:', text);
-                    
-                    // Accept 200-299 (success) and 202 (Accepted)
                     if (response.status < 200 || response.status >= 300) {
                         throw new Error(`HTTP ${response.status}: ${text}`);
                     }
-                    
+
                     try {
                         return JSON.parse(text);
                     } catch (e) {
@@ -1313,7 +1550,6 @@
                 if (data.error) {
                     throw new Error(data.error);
                 }
-                // Poll status until ready
                 return pollGoldenHashStatus();
             });
         }
@@ -1336,22 +1572,16 @@
                         return response.json();
                     })
                     .then(data => {
-                        console.log(`[Poll ${attempts}] Golden hash status:`, data.status);
-
                         if (data.status === 'ready' || data.status === 'success') {
-                            console.log('Golden hash write successful!');
                             return Promise.resolve();
                         } else if (data.status === 'failed' || data.status === 'error') {
                             throw new Error('Golden hash write failed on device');
                         } else if (data.status === 'pending' || data.status === 'processing') {
-                            // Still pending, retry with increasing delay (reduced frequency to avoid overwhelming server)
                             const delayMs = Math.min(500 + (attempts * 100), 2000);
-                            console.log(`Golden hash still processing, retrying in ${delayMs}ms...`);
                             return new Promise(resolve => {
                                 setTimeout(() => poll().then(resolve), delayMs);
                             });
                         } else {
-                            // Unknown status, retry with reasonable delay
                             return new Promise(resolve => {
                                 setTimeout(() => poll().then(resolve), 500);
                             });
@@ -1359,7 +1589,6 @@
                     })
                     .catch(error => {
                         if (attempts < maxAttempts) {
-                            console.log(`Poll error (attempt ${attempts}):`, error.message);
                             return new Promise(resolve => {
                                 setTimeout(() => poll().then(resolve), 500);
                             });
@@ -1372,14 +1601,7 @@
             return poll();
         }
 
-        function getStatusIndicatorClass(value) {
-            if (value === 'ok' || value === true) return 'ok';
-            if (value === 'warning') return 'warning';
-            return 'error';
-        }
-
-        let refreshInProgress = false;
-
+        // ============ Monitoring (STATE 3 only) ============
         function formatUptime(seconds) {
             const hours = Math.floor(seconds / 3600);
             const minutes = Math.floor((seconds % 3600) / 60);
@@ -1389,10 +1611,11 @@
             return `${secs}s`;
         }
 
-        // Helper function to add delay between requests
         function delay(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
         }
+
+        let refreshInProgress = false;
 
         async function refreshStatus() {
             if (!currentBearerToken) {
@@ -1405,46 +1628,18 @@
             refreshInProgress = true;
 
             try {
-                // Request 1: Status (SEQUENTIAL with delays to avoid overwhelming single-connection server)
+                // Request 1: Status
                 try {
                     const response = await fetchWithAuth('http://192.168.4.1/api/status');
                     const data = await response.json();
-                    
-                    const provisioningIndicator = document.getElementById('provisioningIndicator');
-                    const statusText = document.getElementById('statusText');
-                    
-                    if (data.provisioned) {
-                        provisioningIndicator.className = 'status-indicator ok';
-                        statusText.textContent = 'Provisioned ✓';
-                    } else {
-                        provisioningIndicator.className = 'status-indicator error';
-                        statusText.textContent = 'Not Provisioned';
-                    }
 
                     const uptime = data.uptime_s ?? 0;
                     document.getElementById('uptimeDisplay').textContent = formatUptime(uptime);
                     document.getElementById('state').textContent = data.state ?? '--';
-
-                    const configured = !!data.wifi_configured;
-                    document.getElementById('wifiConfigured').textContent = configured ? 'Yes' : 'No';
-
-                    const wifiIndicator = document.getElementById('wifiIndicator');
-                    if (configured) {
-                        wifiIndicator.className = 'status-indicator ok';
-                        document.getElementById('wifiStatus').textContent = 'Wi-Fi Configured';
-                        document.getElementById('configureBtn').style.display = 'none';
-                    } else {
-                        wifiIndicator.className = 'status-indicator error';
-                        document.getElementById('wifiStatus').textContent = 'Wi-Fi Not Configured';
-                        document.getElementById('configureBtn').style.display = 'inline-block';
-                        document.getElementById('claimResult').style.display = 'none';
-                    }
                 } catch (error) {
                     console.error('Error fetching status:', error);
-                    showMessage('Failed to fetch status', 'error');
                 }
 
-                // 200ms delay before next request (single-connection HTTP server)
                 await delay(200);
 
                 // Request 2: Network
@@ -1452,19 +1647,16 @@
                     const response = await fetchWithAuth('http://192.168.4.1/api/network');
                     const data = await response.json();
                     document.getElementById('networkSSID').textContent = data.ssid || '--';
-                    document.getElementById('networkSecurity').textContent = data.security || '--';
-                    document.getElementById('networkIP').textContent = data.ap_ip || '--';
-                    document.getElementById('ipAddress').textContent = data.ap_ip || '--';
-                    
-                    document.getElementById('networkIndicator').className = 'status-indicator ok';
-                    document.getElementById('networkStatus').textContent = 'Network Active';
-                    
+                    document.getElementById('networkSecurity').textContent = data.security || 'WPA2-PSK';
+                    document.getElementById('networkIP').textContent = data.ap_ip || '192.168.4.1';
+                    document.getElementById('ipAddress').textContent = data.ap_ip || '192.168.4.1';
+
                     const clientsList = document.getElementById('clientsList');
                     const clientCount = data.clients ? data.clients.length : 0;
                     document.getElementById('clientCount').textContent = clientCount;
-                    
+
                     if (data.clients && data.clients.length > 0) {
-                        clientsList.innerHTML = data.clients.map(client => 
+                        clientsList.innerHTML = data.clients.map(client =>
                             `<div style="padding: 8px; background: #2a2a2a; border-radius: 3px; margin-bottom: 6px; width: 100%;">
                                 <div style="margin-bottom: 3px;"><strong>MAC:</strong> ${client.mac}</div>
                                 <div><strong>IP:</strong> ${client.ip}</div>
@@ -1475,8 +1667,6 @@
                     }
                 } catch (error) {
                     console.error('Error fetching network info:', error);
-                    document.getElementById('networkIndicator').className = 'status-indicator error';
-                    document.getElementById('networkStatus').textContent = 'Network Error';
                 }
 
                 await delay(200);
@@ -1489,7 +1679,7 @@
                     document.getElementById('ramUsed').textContent = data.ram_used_kb || '--';
                     const ramPercent = data.ram_used_percent ?? 0;
                     document.getElementById('ramDisplay').textContent = ramPercent.toFixed(1) + ' %';
-                    
+
                     const ramDisplay = document.getElementById('ramDisplay');
                     if (ramPercent > 80) {
                         ramDisplay.style.color = '#ff7875';
@@ -1504,7 +1694,7 @@
 
                 await delay(200);
 
-                // Request 4: CPU (re-enabled after heap increase to 128KB)
+                // Request 4: CPU
                 try {
                     const response = await fetchWithAuth('http://192.168.4.1/api/cpu');
                     const data = await response.json();
@@ -1540,39 +1730,9 @@
             }
         }
 
-        function configureWifi() {
-            const btn = document.getElementById('configureBtn');
-            btn.disabled = true;
-            btn.textContent = 'Configuring...';
-            fetchWithAuth('http://192.168.4.1/api/claim')
-                .then(resp => resp.json())
-                .then(data => {
-                    if (data && data.status === 'ok') {
-                        // Show new password and hint
-                        document.getElementById('newPassword').textContent = data.new_password || '';
-                        document.getElementById('claimResult').style.display = 'block';
-                        showMessage('Wi-Fi configured. Password generated.', 'success');
-
-                        // Optionally start countdown
-                        const ms = data.reconnect_in_ms || 0;
-                        if (ms > 0) {
-                            const hint = document.getElementById('reconnectHint');
-                            hint.textContent = `AP will restart in ~${ms} ms. Reconnect using the password above.`;
-                        }
-                    } else {
-                        throw new Error('Claim failed');
-                    }
-                })
-                .catch(err => {
-                    console.error(err);
-                    showMessage('Wi-Fi configuration failed', 'error');
-                    btn.disabled = false;
-                    btn.textContent = 'Configure Wi-Fi';
-                })
-                .finally(() => {
-                    // Refresh status shortly after to reflect g_claimed
-                    setTimeout(refreshStatus, 1000);
-                });
+        function startMonitoring() {
+            refreshStatus();
+            window.refreshTimer = setInterval(refreshStatus, 5000);
         }
 
         function testPing() {
@@ -1587,6 +1747,26 @@
                 });
         }
 
+        // ============ Utilities ============
+        function showMessage(text, type) {
+            const msg = document.getElementById('message');
+            msg.textContent = text;
+            msg.className = `message show ${type}`;
+            setTimeout(() => {
+                msg.className = 'message';
+            }, 3000);
+        }
+
+        function copyToClipboard(elementId) {
+            const element = document.getElementById(elementId);
+            const text = element.textContent.replace('Copy', '').trim();
+            navigator.clipboard.writeText(text).then(() => {
+                showMessage('Copied to clipboard!', 'success');
+            }).catch(() => {
+                showMessage('Failed to copy', 'error');
+            });
+        }
+
         // Close modal when clicking outside of it
         window.addEventListener('click', function(event) {
             const modal = document.getElementById('provisioningModal');
@@ -1595,11 +1775,9 @@
             }
         });
 
-        // Refresh every 5 seconds (serialized requests with delays prevent overwhelming server)
-        window.addEventListener('load', async () => {
-            await initializeTokenAuth();
-            refreshStatus();
-            window.refreshTimer = setInterval(refreshStatus, 5000);
+        // Initialize on page load
+        window.addEventListener('load', () => {
+            detectDeviceState();
         });
     </script>
 </body>

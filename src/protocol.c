@@ -289,6 +289,7 @@ void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload
                     uint8_t response[128];
                     memcpy(response, g_protocol_state.et_pubkey, 64);
                     memcpy(response + 64, token_signature, 64);
+                    pico_delay_ms(SLOW_HOST_COMPENSATION_MSECS);
                     send_message(T2H_ECDH_SHARE, response, 128);
 
                     print_dbg("Sent T2H_ECDH_SHARE (host-initiated ECDH)\n");
