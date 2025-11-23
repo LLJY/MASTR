@@ -49,11 +49,9 @@ static bool g_bearer_token_generated = false;
 // One-shot timer callback to restart AP with new password
 // Worker task to perform AP restart in a normal task context (not timer task)
 static void ap_restart_task(void *arg) {
-    uint32_t delay_ms = (uint32_t)(uintptr_t)arg;
-    if (delay_ms < 50) {
-        delay_ms = 50; // always give the TCP stack a moment to flush
-    }
-    vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    (void)arg;
+    // Small delay to ensure response left the device stack
+    vTaskDelay(pdMS_TO_TICKS(50));
     if (g_last_psk[0] != '\0') {
         print_dbg("[API] AP restart task: rotating password\n");
         bool ok = wifi_ap_rotate_password(g_last_psk);
@@ -62,6 +60,19 @@ static void ap_restart_task(void *arg) {
         print_dbg("[API] AP restart task: no cached PSK, skipping rotate\n");
     }
     vTaskDelete(NULL);
+}
+
+static void ap_rotate_timer_cb(TimerHandle_t xTimer) {
+    (void)xTimer;
+    // Create detached worker to do the heavy lifting (deinit/init may block)
+    if (xTaskCreate(ap_restart_task, "ap_rst", 1024, NULL, tskIDLE_PRIORITY + 2, NULL) != pdPASS) {
+        print_dbg("[API] claim: failed to spawn ap_rst task; rotating synchronously\n");
+        // Last-resort fallback: rotate inline (may briefly block)
+        if (g_last_psk[0] != '\0') {
+            bool ok = wifi_ap_rotate_password(g_last_psk);
+            print_dbg("[API] claim: inline rotate result=%d\n", ok ? 1 : 0);
+        }
+    }
 }
 
 // Generate a random WPA2 passphrase (length between 16 and 24) using get_rand_32()
@@ -146,14 +157,13 @@ static void claim_handler(struct tcp_pcb *pcb, const char *request) {
     generate_random_psk(g_last_psk, sizeof(g_last_psk));
     g_claimed = true;
 
-    // Spawn a one-shot worker to rotate AP after grace period so response is delivered first.
-    if (xTaskCreate(ap_restart_task, "ap_rst", 2048, (void *)(uintptr_t)CLAIM_GRACE_MS, tskIDLE_PRIORITY + 2, NULL) != pdPASS) {
-        print_dbg("[API] claim: failed to spawn ap_rst task; rotating synchronously\n");
-        // Last-resort fallback: rotate inline (may briefly block)
-        if (g_last_psk[0] != '\0') {
-            bool ok = wifi_ap_rotate_password(g_last_psk);
-            print_dbg("[API] claim: inline rotate result=%d\n", ok ? 1 : 0);
-        }
+    // Create one-shot timer to rotate AP after grace period so response is delivered first.
+    TimerHandle_t t = xTimerCreate("ap_rot", pdMS_TO_TICKS(CLAIM_GRACE_MS), pdFALSE, NULL, ap_rotate_timer_cb);
+    if (t) {
+        xTimerStart(t, 0);
+    } else {
+        // Fallback: rotate immediately
+        ap_rotate_timer_cb(NULL);
     }
 
     char body[160];
