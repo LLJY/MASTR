@@ -577,11 +577,6 @@ void crypto_spawn_wifi_password_task(void) {
         task_spawned = true;
     }
 }
-#else
-void crypto_spawn_wifi_password_task(void) {
-    // No-op in unit test mode
-}
-#endif
 
 // Non-blocking WiFi password write API
 bool crypto_queue_wifi_password_write(const char* password) {
@@ -608,6 +603,28 @@ bool crypto_get_wifi_password_write_status(bool *write_ready_out, bool *write_fa
     if (write_failed_out) *write_failed_out = g_wifi_password_write_failed;
     return g_wifi_password_write_ready;
 }
+
+#else
+// UNIT_TEST mode - stub implementations
+void crypto_spawn_wifi_password_task(void) {
+    // No-op in unit test mode
+}
+
+bool crypto_queue_wifi_password_write(const char* password) {
+    // Test stub - just validate and return success
+    if (!password || strlen(password) > 31) {
+        return false;
+    }
+    return true;
+}
+
+bool crypto_get_wifi_password_write_status(bool *write_ready_out, bool *write_failed_out) {
+    // Test stub - always report ready
+    if (write_ready_out) *write_ready_out = true;
+    if (write_failed_out) *write_failed_out = false;
+    return true;
+}
+#endif
 
 int crypto_hex_to_bytes(const char* hex_str, uint8_t* out_bytes, size_t max_bytes) {
     if (!hex_str || !out_bytes) return -1;
