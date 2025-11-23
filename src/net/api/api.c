@@ -39,19 +39,12 @@
 // State: has the device been claimed already?
 static bool g_claimed = false;
 // Cache the last generated password so we can optionally re-display or debug
-static char g_last_psk[33] = ""; // 32 chars + NUL
+static char g_last_psk[33] = "";             // 32 chars + NUL
 static const uint32_t CLAIM_GRACE_MS = 2000; // TCP close + client reconnect time
 
 // Bearer token authentication state
 static char g_bearer_token[65] = ""; // 64 hex chars + NUL (256-bit token)
 static bool g_bearer_token_generated = false;
-
-// Token pubkey caching/prefetch handled by crypt.c now
-
-// Forward declarations (reset_timer_cb removed if not used)
-
-// NOTE: Removed timer+task pattern. Now using background task (crypto_spawn_wifi_password_task)
-// The write is queued via crypto_queue_wifi_password_write() directly from claim_handler
 
 // Generate a random WPA2 passphrase (length between 16 and 24) using get_rand_32()
 static void generate_random_psk(char *out, size_t out_len) {
@@ -59,7 +52,7 @@ static void generate_random_psk(char *out, size_t out_len) {
     size_t charset_len = sizeof(charset) - 1;
     if (out_len == 0) return;
     uint32_t seed = get_rand_32();
-    size_t target = 16; // fixed length for now
+    size_t target = 16;
     if (target > out_len - 1) target = out_len - 1;
     for (size_t i = 0; i < target; i++) {
         // Mix hardware random each iteration for unpredictability
@@ -72,7 +65,7 @@ static void generate_random_psk(char *out, size_t out_len) {
 // Generate a random bearer token (256-bit = 64 hex chars)
 static void generate_bearer_token(char *out, size_t out_len) {
     static const char HEX[] = "0123456789abcdef";
-    if (out_len < 65) return; // Need at least 65 bytes (64 hex + NUL)
+    if (out_len < 65) return;
 
     for (int chunk = 0; chunk < 8; ++chunk) {
         uint32_t r = get_rand_32();
@@ -207,8 +200,7 @@ static void generate_token_handler(struct tcp_pcb *pcb, const char *request) {
     http_send_json(pcb, 200, body);
 }
 
-// CPU utilization tracking handled inside cpu_monitor (runtime-only)
-
+// Lightweight ping endpoint for connectivity checks
 static void ping_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
     http_send_json(pcb, 200, "{\"message\":\"pong\"}");
@@ -459,12 +451,9 @@ static void token_info_handler(struct tcp_pcb *pcb, const char *request){
  * Returns: {"status":"accepted"} or {"error":"..."}
  */
 static void set_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
-    ////print_dbg("API: set_host_pubkey_handler called (non-blocking)\n");
-    
     // Find the request body (after double CRLF)
     const char *body_start = strstr(request, "\r\n\r\n");
     if (!body_start) {
-        ////print_dbg("API: missing request body\n");
         http_send_json(pcb, 400, "{\"error\":\"missing_body\"}");
         return;
     }
@@ -478,10 +467,8 @@ static void set_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
     
     // Create null-terminated string for the hex data
     size_t hex_len = body_end - body_start;
-    ////print_dbg("API: received hex data length: %zu\n", hex_len);
     
     if (hex_len != 128) {
-        ////print_dbg("API: invalid hex length, expected 128, got %zu\n", hex_len);
         char error_msg[100];
         snprintf(error_msg, sizeof(error_msg), "{\"error\":\"invalid_length\",\"expected\":128,\"got\":%zu}", hex_len);
         http_send_json(pcb, 400, error_msg);
@@ -492,32 +479,25 @@ static void set_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
     for (size_t i = 0; i < 128; i++) {
         char c = body_start[i];
         if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
-            ////print_dbg("API: invalid hex character at position %zu: '%c'\n", i, c);
             http_send_json(pcb, 400, "{\"error\":\"invalid_hex_format\"}");
             return;
         }
     }
     
-    ////print_dbg("API: hex validation passed, creating null-terminated string\n");
-    
     // Create null-terminated string for the crypto function
     char hex_str[129];
     memcpy(hex_str, body_start, 128);
     hex_str[128] = '\0';
-    
-    ////print_dbg("API: requesting non-blocking host pubkey write\n");
-    
+
     // Use the new non-blocking crypto function
     bool write_ready, write_failed;
     bool accepted = crypto_request_host_pubkey_write(hex_str, &write_ready, &write_failed);
     
     if (!accepted) {
-        ////print_dbg("API: Host pubkey write request rejected (already pending)\n");
         http_send_json(pcb, 409, "{\"error\":\"write_pending\",\"retry_ms\":100}");
         return;
     }
-    
-    ////print_dbg("API: Host pubkey write request accepted\n");
+
     http_send_json(pcb, 202, "{\"status\":\"accepted\",\"message\":\"write_queued\"}");
 }
 
@@ -528,8 +508,6 @@ static void set_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
  */
 static void get_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
-    ////print_dbg("API: get_host_pubkey_handler called (non-blocking)\n");
-    
     const char *hex_pubkey = NULL;
     bool ready = false;
     bool failed = false;
@@ -537,7 +515,6 @@ static void get_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
     crypto_get_cached_host_pubkey_hex(&hex_pubkey, &ready, &failed);
     
     if (failed) {
-        ////print_dbg("API: Host pubkey read failed\n");
         http_send_json(pcb, 500, "{\"error\":\"read_failed\"}");
         return;
     }
@@ -547,13 +524,11 @@ static void get_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
         char body[180];
         int n = snprintf(body, sizeof(body), "{\"host_pubkey\":\"%s\",\"cached\":true}", hex_pubkey);
         (void)n;
-        ////print_dbg("API: Returning cached host pubkey\n");
         http_send_json(pcb, 200, body);
         return;
     }
     
     // Still reading
-    ////print_dbg("API: Host pubkey not ready yet\n");
     http_send_json(pcb, 503, "{\"status\":\"reading\",\"retry_ms\":100}");
 }
 
@@ -564,8 +539,6 @@ static void get_host_pubkey_handler(struct tcp_pcb *pcb, const char *request) {
  */
 static void host_pubkey_status_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
-    ////print_dbg("API: host_pubkey_status_handler called\n");
-    
     bool write_ready = false;
     bool write_failed = false;
     
@@ -694,7 +667,7 @@ static void reset_timer_cb(TimerHandle_t timer) {
         "Reset",
         DEFAULT_STACK_SIZE,
         NULL,
-        15,  // Medium priority
+        15,
         NULL
     );
 
@@ -707,7 +680,7 @@ static void reset_timer_cb(TimerHandle_t timer) {
 }
 
 static void reset_api_handler(struct tcp_pcb *pcb, const char *request) {
-    (void)request; // Unused parameter
+    (void)request;
 
     print_dbg("[API] reset_api_handler called\n");
 
@@ -779,7 +752,7 @@ void api_register_routes(void) {
 
     // STATE 1: No password and not claimed → Only claim endpoint (NO bearer token)
     if (!claimed_or_password_set) {
-        http_register("/api/claim", claim_handler);  // NO AUTH
+        http_register("/api/claim", claim_handler);
         print_dbg("API: UNCLAIMED state - only /api/claim exposed (no auth)\n");
         return;
     }
@@ -817,7 +790,6 @@ void api_register_routes(void) {
     crypto_spawn_pubkey_prefetch();
     crypto_spawn_host_pubkey_task();
     crypto_spawn_golden_hash_task();
-    // WiFi password task already spawned above (line 791) for all states
 
     // Expose token_info and reset in all builds (for university module)
     if (provisioned) {
