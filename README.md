@@ -2,9 +2,11 @@
 
 MASTR is a security-focused embedded system that establishes a secure communication channel between a host system and a hardware token (Raspberry Pi Pico W/Pico 2 W + ATECC608A). It utilizes a three-phase protocol to ensure mutual attestation, secure channel establishment, and runtime integrity verification.
 
+Navigate to [Quick Start Guide](#quick-start-guide) to get started.
+
 [![Protocol](https://img.shields.io/badge/Protocol-MASTR-blue)](docs/)
 [![Firmware](https://img.shields.io/badge/Firmware-RP2040%2FRP2350-green)](src/)
-[![Host](https://img.shields.io/badge/Host-Python%203.8+-brightgreen)](host/)
+[![Host](https://img.shields.io/badge/Host-Python%203.13+-brightgreen)](host/)
 [![Status](https://img.shields.io/badge/Status-Active-success)]()
 
 ---
@@ -23,7 +25,6 @@ MASTR is a security-focused embedded system that establishes a secure communicat
   - [Software Requirements](#software-requirements)
 - [Quick Start Guide](#quick-start-guide)
 - [Building the Firmware](#building-the-firmware)
-  - [Build for Raspberry Pi Pico W](#build-for-raspberry-pi-pico-w)
   - [Build for Raspberry Pi Pico 2 W (RP2350)](#build-for-raspberry-pi-pico-2-w-rp2350)
   - [Flashing the Firmware](#flashing-the-firmware)
   - [Build Options](#build-options)
@@ -47,8 +48,6 @@ MASTR is a security-focused embedded system that establishes a secure communicat
   - [Protocol Errors](#protocol-errors)
   - [TPM2 Issues](#tpm2-issues)
 - [Project Structure](#project-structure)
-- [Additional Resources](#additional-resources)
-- [Contributing](#contributing)
 - [License](#license)
 
 ---
@@ -115,10 +114,10 @@ Before you begin, ensure you have the following installed and configured:
 
 #### Hardware Requirements
 
-- **Raspberry Pi Pico W** or **Raspberry Pi Pico 2 W** (with WiFi)
-- **ATECC608A** secure element (connected via I2C at address 0x6A)
+- **Raspberry Pi Pico 2 W** (with WiFi)
+- **ATECC608A/B/C** secure element (connected via I2C at address 0x35) i2c address is configurable
 - **USB cable** for programming and serial communication
-- **Host computer** (Linux, macOS, or Windows)
+- **Host computer** (Linux, macOS, or POSIX Compliant OS ONLY)
 
 #### Software Requirements
 
@@ -173,11 +172,6 @@ git submodule update --init
 export PICO_SDK_PATH=$(pwd)
 ```
 
-**Windows:**
-- Install ARM GCC from [ARM Downloads](https://developer.arm.com/tools-and-software/open-source-software/developer-tools/gnu-toolchain/gnu-rm/downloads)
-- Install CMake from [cmake.org](https://cmake.org/download/)
-- Clone Pico SDK and set `PICO_SDK_PATH` environment variable
-
 ---
 
 ## Quick Start Guide
@@ -187,38 +181,37 @@ Follow these steps to get MASTR up and running from zero to a fully provisioned,
 ### Step 1: Clone the Repository
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/LLJY/MASTR
 cd MASTR-NEW
 ```
 
 ### Step 2: Build the Firmware
 
 ```bash
-# For Raspberry Pi Pico W
+# For Raspberry Pi Pico 2W
 mkdir build
 cd build
-cmake .. -DPICO_BOARD=pico_w
-make
-cd ..
+# compiling in debug mode recommended for testing
+cmake .. -DPICO_BOARD=pico2_w -DENABLE_DEBUG=ON
+make -j$(nproc)
 ```
 
-### Step 3: Flash the Firmware
+### Step 3: Flash the Firmware (Picotool recommended)
 
-1. Hold down the **BOOTSEL** button on your Pico W
-2. Connect the Pico W to your computer via USB
-3. The Pico W will appear as a mass storage device (RPI-RP2)
-4. Copy the firmware file to the device:
+Run the following command in the `build` folder:
    ```bash
-   cp build/mastr.uf2 /media/$USER/RPI-RP2/
+   picotool load -f pico_project_template.uf2
    ```
-   (On Windows: drag and drop to the RPI-RP2 drive)
-5. The Pico W will automatically reboot and start running MASTR
+
+The Pico W will automatically reboot and start running MASTR
 
 ### Step 4: Install Host Dependencies
 
 ```bash
 cd host/
 pip install -r requirements.txt
+
+# pytss may fail to install.
 ```
 
 ### Step 5: Provision the System
@@ -238,71 +231,49 @@ You should see successful authentication and a secure channel established!
 
 ## Building the Firmware
 
-The firmware runs on Raspberry Pi Pico/Pico W with FreeRTOS and uses CMake for building.
+The firmware currently only runs on the Pico 2W, the standard Pico W is supported, but not tested.
 
-### Build for Raspberry Pi Pico W
-
-```bash
-# From project root
-mkdir build
-cd build
-
-# Configure for Pico W (RP2040 with WiFi)
-cmake .. -DPICO_BOARD=pico_w
-
-# Build
-make
-
-# The output file will be: build/mastr.uf2
-```
-
-### Build for Raspberry Pi Pico 2 W (RP2350)
+### Build for Raspberry Pi Pico 2W
 
 ```bash
 # From project root
 mkdir build
 cd build
 
-# Configure for RP2350 platform
-cmake .. -DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2_w
+# Configure for Pico 2W (RP2350 with WiFi)
+cmake .. -DPICO_BOARD=pico2_w  -DENABLE_DEBUG=ON
 
 # Build
-make
+make -j$(nproc)
 
-# The output file will be: build/mastr.uf2
+# The output file will be: build/pico_project_template.uf2
 ```
 
 ### Flashing the Firmware
 
-**BOOTSEL Method (Recommended):**
-
-1. **Hold BOOTSEL button** while connecting USB cable
-2. Pico appears as mass storage device named **RPI-RP2**
-3. **Copy UF2 file** to the drive:
+**Using Picotool Method (Recommended):**
+1. After compilation, run the following command:
    ```bash
    # Linux/macOS
-   cp build/mastr.uf2 /media/$USER/RPI-RP2/
-
-   # Windows (replace D: with your drive letter)
-   copy build\mastr.uf2 D:\
+   picotool load -f pico_project_template.uf2
    ```
 4. Device will **automatically reboot** and run the firmware
 
 **Verify Firmware is Running:**
-- The token's WiFi AP should appear (check for SSID in your WiFi list)
+- The token's WiFi AP should appear as `MASTR-TOKEN` (check for SSID in your WiFi list)
 - Serial output should be visible on `/dev/ttyACM0` at 115200 baud
 
 ### Build Options
 
 **Debug Build:**
 ```bash
-cmake .. -DPICO_BOARD=pico_w -DCMAKE_BUILD_TYPE=Debug
+cmake .. -DPICO_BOARD=pico2_w -DCMAKE_BUILD_TYPE=Debug
 make
 ```
 
 **Release Build (Optimized):**
 ```bash
-cmake .. -DPICO_BOARD=pico_w -DCMAKE_BUILD_TYPE=Release
+cmake .. -DPICO_BOARD=pico2_w -DCMAKE_BUILD_TYPE=Release
 make
 ```
 
@@ -313,7 +284,7 @@ cd ..
 rm -rf build
 mkdir build
 cd build
-cmake .. -DPICO_BOARD=pico_w
+cmake .. -DPICO_BOARD=pico2_w
 make
 ```
 
@@ -1264,12 +1235,12 @@ MASTR-NEW/
 
 ## Additional Resources
 
-- **[PROVISIONING.md](/home/lucas/Projects/Embed/MASTR-NEW/PROVISIONING.md)** - Detailed provisioning guide
-- **[QUICK_START_TPM2.md](/home/lucas/Projects/Embed/MASTR-NEW/QUICK_START_TPM2.md)** - TPM2 setup and usage
-- **[host/README.md](/home/lucas/Projects/Embed/MASTR-NEW/host/README.md)** - Python host implementation details
-- **[host/ARCHITECTURE.md](/home/lucas/Projects/Embed/MASTR-NEW/host/ARCHITECTURE.md)** - Detailed architecture documentation
-- **[docs/provisioning_flow.md](/home/lucas/Projects/Embed/MASTR-NEW/docs/provisioning_flow.md)** - Provisioning flow diagrams
-- **[docs/ap_http_architecture.md](/home/lucas/Projects/Embed/MASTR-NEW/docs/ap_http_architecture.md)** - WiFi AP and HTTP architecture
+- **[PROVISIONING.md](./PROVISIONING.md)** - Detailed provisioning guide
+- **[QUICK_START_TPM2.md](./QUICK_START_TPM2.md)** - TPM2 setup and usage
+- **[host/README.md](./host/README.md)** - Python host implementation details
+- **[host/ARCHITECTURE.md](./host/ARCHITECTURE.md)** - Detailed architecture documentation
+- **[docs/provisioning_flow.md](./docs/provisioning_flow.md)** - Provisioning flow diagrams
+- **[docs/ap_http_architecture.md](./docs/ap_http_architecture.md)** - WiFi AP and HTTP architecture
 
 **External Resources:**
 - [Raspberry Pi Pico SDK Documentation](https://raspberrypi.github.io/pico-sdk-doxygen/)
@@ -1302,53 +1273,13 @@ Contributions are welcome! Please follow these guidelines:
 8. **Push to the branch** (`git push origin feature/amazing-feature`)
 9. **Open a Pull Request**
 
-**Code Review Criteria:**
-- Functionality correctness
-- Security implications
-- Code style compliance
-- Test coverage
-- Documentation updates
-
 ---
 
 ## License
 
-This project is licensed under the terms specified in [LICENSE.TXT](/home/lucas/Projects/Embed/MASTR-NEW/LICENSE.TXT).
+This project is licensed under the BSD 3-Clause License as specified in [LICENSE.TXT](./LICENSE.TXT).
 
 ---
-
-## Security Considerations
-
-**Production Deployment Checklist:**
-
-- [ ] Use TPM2Crypto backend (not NaiveCrypto)
-- [ ] Verify ATECC608A is properly configured
-- [ ] Use strong WiFi passwords (generated via `/api/claim`)
-- [ ] Update golden hash to match production firmware
-- [ ] Disable debug message types in production firmware
-- [ ] Use HTML UI for provisioning (not debug serial protocol)
-- [ ] Secure physical access to token
-- [ ] Implement proper key rotation policies
-- [ ] Monitor for integrity verification failures
-- [ ] Log all authentication attempts
-
-**Known Limitations:**
-- Debug protocol messages should be disabled in production
-- WiFi AP uses WPA2 (consider WPA3 when supported by hardware)
-- Session keys are ephemeral but not rotated during runtime
-- Heartbeat timeout values may need tuning for specific deployments
-
----
-
-## Acknowledgments
-
-- Raspberry Pi Foundation for Pico SDK
-- Microchip for ATECC608A and CryptoAuthLib
-- FreeRTOS for RTOS kernel
-- Unity Test Framework
-
----
-
 **Last Updated:** 2025-11-23
 **Version:** 3.0 (Production Ready with Full Provisioning Support)
 
