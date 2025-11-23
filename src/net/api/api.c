@@ -4,6 +4,7 @@
 #include "pico/cyw43_arch.h"
 #include "hardware/adc.h"
 #include "lwip/ip4_addr.h"
+#include "lwip/tcp.h"
 #include "constants.h"
 #include <stdio.h>
 #include <string.h>
@@ -39,7 +40,7 @@
 static bool g_claimed = false;
 // Cache the last generated password so we can optionally re-display or debug
 static char g_last_psk[33] = ""; // 32 chars + NUL
-static const uint32_t CLAIM_GRACE_MS = 750; // client sees password then AP restarts
+static const uint32_t CLAIM_GRACE_MS = 2000; // TCP close + client reconnect time
 
 // Bearer token authentication state
 static char g_bearer_token[65] = ""; // 64 hex chars + NUL (256-bit token)
@@ -47,53 +48,56 @@ static bool g_bearer_token_generated = false;
 
 // Token pubkey caching/prefetch handled by crypt.c now
 
-// One-shot timer callback to restart AP with new password
-// Worker task to perform AP restart in a normal task context (not timer task)
-static void ap_restart_task(void *arg) {
+// Forward declarations
+static void claim_flash_timer_cb(TimerHandle_t timer);
+static void reset_timer_cb(TimerHandle_t timer);
+
+// Deferred ATECC write task for claim endpoint
+// AP rotation removed - device reboot will load new password from ATECC
+static void claim_flash_write_task(void *arg) {
     (void)arg;
-    // Small delay to ensure response left the device stack
-    vTaskDelay(pdMS_TO_TICKS(50));
 
-    if (g_last_psk[0] != '\0') {
-        // First, write password to flash (if claimed)
-        // This happens AFTER the HTTP response has been transmitted (750ms + 50ms grace period)
-        if (g_claimed) {
-            print_dbg("[API] AP restart task: writing password to flash\n");
-            if (!flash_write_wifi_password(g_last_psk)) {
-                print_dbg("[API] ERROR: Flash write failed during AP rotation\n");
-                // Continue anyway - password is in RAM for this session
-            }
+    print_dbg("[API] Claim task: writing password to ATECC608A\n");
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    if (g_last_psk[0] != '\0' && g_claimed) {
+        if (!crypto_write_wifi_password(g_last_psk)) {
+            print_dbg("[API] ERROR: ATECC write failed\n");
+            vTaskDelay(pdMS_TO_TICKS(10));
+        } else {
+            print_dbg("[API] Password written to ATECC - reboot device to apply\n");
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
-
-        // Now rotate the AP password
-        print_dbg("[API] AP restart task: rotating password\n");
-        bool ok = wifi_ap_rotate_password(g_last_psk);
-        print_dbg("[API] AP restart task: rotate result=%d\n", ok ? 1 : 0);
     } else {
-        print_dbg("[API] AP restart task: no cached PSK, skipping rotate\n");
+        print_dbg("[API] Claim task: no password to write\n");
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
+
     vTaskDelete(NULL);
 }
 
-static void ap_rotate_timer_cb(TimerHandle_t xTimer) {
-    (void)xTimer;
-    // Create detached worker to do the heavy lifting (deinit/init may block)
-    if (xTaskCreate(ap_restart_task, "ap_rst", 1024, NULL, tskIDLE_PRIORITY + 2, NULL) != pdPASS) {
-        print_dbg("[API] claim: failed to spawn ap_rst task; rotating synchronously\n");
-        // Last-resort fallback: rotate inline (may briefly block)
-        if (g_last_psk[0] != '\0') {
-            // Write to flash first
-            if (g_claimed) {
-                print_dbg("[API] claim: writing password to flash (inline)\n");
-                if (!flash_write_wifi_password(g_last_psk)) {
-                    print_dbg("[API] ERROR: Flash write failed (inline)\n");
-                }
-            }
-            // Then rotate AP
-            bool ok = wifi_ap_rotate_password(g_last_psk);
-            print_dbg("[API] claim: inline rotate result=%d\n", ok ? 1 : 0);
-        }
+// Timer callback that creates the flash write task
+// Runs in timer daemon context (safe to call xTaskCreate)
+static void claim_flash_timer_cb(TimerHandle_t timer) {
+    print_dbg("[API] Timer fired, creating flash write task\n");
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    BaseType_t result = xTaskCreate(
+        claim_flash_write_task,
+        "ClaimFlash",
+        DEFAULT_STACK_SIZE,
+        NULL,
+        15,  // Medium priority
+        NULL
+    );
+
+    if (result != pdPASS) {
+        print_dbg("[API] ERROR: Failed to create flash write task from timer\n");
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
+
+    // Delete the one-shot timer
+    xTimerDelete(timer, 0);
 }
 
 // Generate a random WPA2 passphrase (length between 16 and 24) using get_rand_32()
@@ -171,11 +175,16 @@ bool http_validate_bearer_token(const char *request) {
 static void claim_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
     print_dbg("[API] claim_handler called (claimed=%d)\n", g_claimed ? 1 : 0);
+    vTaskDelay(pdMS_TO_TICKS(30));
+    
+    
+    vTaskDelay(pdMS_TO_TICKS(50));
 
     #ifdef DEBUG
     // In debug mode, allow re-claiming
     if (g_claimed) {
         print_dbg("[API] DEBUG: Allowing re-claim\n");
+        vTaskDelay(pdMS_TO_TICKS(10));
         g_claimed = false;
     }
     #endif
@@ -190,24 +199,50 @@ static void claim_handler(struct tcp_pcb *pcb, const char *request) {
 
     g_claimed = true;
 
-    // Send HTTP response immediately
+    /* 
+    ok here me out, over here we kept running into issues (logical race condition) with getting this to work
+    when building with debug, it would succeed but building with prod it will fail
+    so we added a 10ms delay at every single print dbg statement
+    .... that fixed it.....
+    */
+    print_dbg("[API] About to send JSON response\n");
+    vTaskDelay(pdMS_TO_TICKS(30));
+
     char body[160];
     int n = snprintf(body, sizeof(body),
-                     "{\"status\":\"ok\",\"ssid\":\"%s\",\"new_password\":\"%s\",\"reconnect_in_ms\":%u}",
-                     wifi_ap_get_config()->ssid, g_last_psk, CLAIM_GRACE_MS);
+                     "{\"status\":\"ok\",\"ssid\":\"%s\",\"new_password\":\"%s\",\"message\":\"reboot_device\"}",
+                     wifi_ap_get_config()->ssid, g_last_psk);
     (void)n;
+
+    print_dbg("[API] Calling http_send_json\n");
+    vTaskDelay(pdMS_TO_TICKS(30));
     http_send_json(pcb, 200, body);
 
-    // Flash write will happen later in ap_restart_task (after 800ms grace period)
-    // This ensures the HTTP response is fully transmitted before we freeze the system
+    print_dbg("[API] http_send_json returned\n");
+    vTaskDelay(pdMS_TO_TICKS(30));
 
-    // Create one-shot timer to rotate AP after grace period
-    TimerHandle_t t = xTimerCreate("ap_rot", pdMS_TO_TICKS(CLAIM_GRACE_MS), pdFALSE, NULL, ap_rotate_timer_cb);
-    if (t) {
-        xTimerStart(t, 0);
+    // Use a FreeRTOS timer instead of creating task directly
+    // This avoids calling xTaskCreate() from lwIP context which causes deadlock
+    TimerHandle_t timer = xTimerCreate(
+        "ClaimFlash",
+        pdMS_TO_TICKS(2000),  // 2 second delay
+        pdFALSE,              // One-shot timer
+        NULL,
+        claim_flash_timer_cb  // Timer callback will create the task
+    );
+
+    if (timer != NULL) {
+        if (xTimerStart(timer, 0) == pdPASS) {
+            print_dbg("[API] Flash write scheduled via timer\n");
+            vTaskDelay(pdMS_TO_TICKS(30));
+        } else {
+            print_dbg("[API] ERROR: Failed to start timer\n");
+            vTaskDelay(pdMS_TO_TICKS(30));
+            xTimerDelete(timer, 0);
+        }
     } else {
-        // Fallback: rotate immediately (flash write will happen in ap_rotate_timer_cb)
-        ap_rotate_timer_cb(NULL);
+        print_dbg("[API] ERROR: Failed to create timer\n");
+        vTaskDelay(pdMS_TO_TICKS(30));
     }
 }
 
@@ -706,22 +741,19 @@ static void golden_hash_status_handler(struct tcp_pcb *pcb, const char *request)
     }
 }
 
-#ifdef DEBUG
 // Deferred reset task (runs after response is sent)
+// Available in all builds for university module
 static void reset_task(void *arg) {
     (void)arg;
-
-    // Wait to ensure HTTP response was fully transmitted (same as claim endpoint)
-    vTaskDelay(pdMS_TO_TICKS(1000));
 
     print_dbg("[API] Reset task: clearing ATECC608A provisioning data\n");
     protocol_unprovision();
 
-    print_dbg("[API] Reset task: clearing WiFi password from flash\n");
-    if (!flash_clear_wifi_password()) {
+    print_dbg("[API] Reset task: clearing WiFi password from ATECC608A\n");
+    if (!crypto_clear_wifi_password()) {
         print_dbg("[API] ERROR: Failed to clear WiFi password\n");
     } else {
-        print_dbg("[API] WiFi password cleared successfully\n");
+        print_dbg("[API] WiFi password cleared from ATECC successfully\n");
     }
 
     print_dbg("[API] Reset complete - device should be rebooted\n");
@@ -730,20 +762,11 @@ static void reset_task(void *arg) {
     vTaskDelete(NULL);
 }
 
-static void reset_api_handler(struct tcp_pcb *pcb, const char *request) {
-    (void)request; // Unused parameter
+// Timer callback for reset endpoint
+// Runs in timer daemon context (safe to call xTaskCreate)
+static void reset_timer_cb(TimerHandle_t timer) {
+    print_dbg("[API] Reset timer fired, creating reset task\n");
 
-    print_dbg("[API] Full reset requested - deferring to background task\n");
-
-    // Clear claimed flag immediately (safe, no hardware access)
-    g_claimed = false;
-
-    // Send response immediately (before any hardware operations)
-    char response[150];
-    snprintf(response, sizeof(response), "{\"status\":\"success\",\"message\":\"reboot_device\"}");
-    http_send_json(pcb, 200, response);
-
-    // Defer ATECC + flash operations to background task (after response is sent)
     BaseType_t result = xTaskCreate(
         reset_task,
         "Reset",
@@ -754,10 +777,52 @@ static void reset_api_handler(struct tcp_pcb *pcb, const char *request) {
     );
 
     if (result != pdPASS) {
-        print_dbg("[API] ERROR: Failed to create reset task\n");
+        print_dbg("[API] ERROR: Failed to create reset task from timer\n");
+    }
+
+    // Delete the one-shot timer
+    xTimerDelete(timer, 0);
+}
+
+static void reset_api_handler(struct tcp_pcb *pcb, const char *request) {
+    (void)request; // Unused parameter
+
+    print_dbg("[API] reset_api_handler called\n");
+
+    // Clear claimed flag immediately (safe, no hardware access)
+    g_claimed = false;
+
+    // Send response immediately (before any hardware operations)
+    print_dbg("[API] Sending reset response\n");
+    char response[150];
+    snprintf(response, sizeof(response), "{\"status\":\"success\",\"message\":\"reboot_device\"}");
+    http_send_json(pcb, 200, response);
+
+    print_dbg("[API] Response sent, creating timer\n");
+
+    // Use a FreeRTOS timer instead of creating task directly
+    // This avoids calling xTaskCreate() from lwIP context which causes deadlock
+    TimerHandle_t timer = xTimerCreate(
+        "ResetTimer",
+        pdMS_TO_TICKS(2000),  // 2 second delay
+        pdFALSE,              // One-shot timer
+        NULL,
+        reset_timer_cb        // Timer callback will create the task
+    );
+
+    if (timer != NULL) {
+        if (xTimerStart(timer, 0) == pdPASS) {
+            print_dbg("[API] Reset scheduled via timer\n");
+        } else {
+            print_dbg("[API] ERROR: Failed to start reset timer\n");
+            xTimerDelete(timer, 0);
+        }
+    } else {
+        print_dbg("[API] ERROR: Failed to create reset timer\n");
     }
 }
 
+#ifdef DEBUG
 static void wifi_password_reset_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request; // Unused parameter
 
@@ -828,12 +893,14 @@ void api_register_routes(void) {
     crypto_spawn_host_pubkey_task();
     crypto_spawn_golden_hash_task();
 
-    #ifdef DEBUG
-    // Debug mode: additional endpoints
+    // Expose token_info and reset in all builds (for university module)
     if (provisioned) {
         http_register_auth("/api/provision/token_info", token_info_handler, true);
         http_register_auth("/api/provision/reset", reset_api_handler, true);
     }
+
+    #ifdef DEBUG
+    // Debug mode: WiFi password reset endpoint
     http_register_auth("/api/wifi/reset", wifi_password_reset_handler, true);
     print_dbg("API: DEBUG mode - reset endpoints enabled\n");
     #endif

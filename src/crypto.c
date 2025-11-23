@@ -440,6 +440,94 @@ bool crypto_set_host_pubkey(const uint8_t* host_pubkey) {
     return true;
 }
 
+/**
+ * Writes WiFi password to ATECC608A Slot 8 Block 3 (32 bytes)
+ * Password is null-terminated, max 31 chars. Remainder is zero-padded.
+ */
+bool crypto_write_wifi_password(const char* password) {
+    if (!password) return false;
+
+    uint8_t block_data[32];
+    memset(block_data, 0, 32);
+
+    // Copy password (max 31 bytes to leave room for null terminator)
+    size_t len = strlen(password);
+    if (len > 31) len = 31;
+
+    memcpy(block_data, password, len);
+    block_data[len] = '\0';  // Ensure null termination
+
+    // Write to Slot 8, Block 3
+    ATCA_STATUS status = atcab_write_zone(
+        ATCA_ZONE_DATA,
+        SLOT_HOST_PUBKEY,  // Slot 8
+        3,                 // Block 3
+        0,                 // Offset
+        block_data,
+        32
+    );
+
+    return (status == ATCA_SUCCESS);
+}
+
+/**
+ * Reads WiFi password from ATECC608A Slot 8 Block 3 (32 bytes)
+ * Returns true if password exists (non-empty), false otherwise
+ */
+bool crypto_read_wifi_password(char* password_out, size_t max_len) {
+    if (!password_out || max_len == 0) return false;
+
+    uint8_t block_data[32];
+
+    // Read from Slot 8, Block 3
+    ATCA_STATUS status = atcab_read_zone(
+        ATCA_ZONE_DATA,
+        SLOT_HOST_PUBKEY,  // Slot 8
+        3,                 // Block 3
+        0,                 // Offset
+        block_data,
+        32
+    );
+
+    if (status != ATCA_SUCCESS) {
+        return false;
+    }
+
+    // Check if password exists (first byte non-zero)
+    if (block_data[0] == 0) {
+        return false;  // No password set
+    }
+
+    // Ensure null termination within the block
+    block_data[31] = '\0';
+
+    // Copy to output
+    strncpy(password_out, (char*)block_data, max_len - 1);
+    password_out[max_len - 1] = '\0';
+
+    return true;
+}
+
+/**
+ * Clears WiFi password from ATECC608A Slot 8 Block 3
+ */
+bool crypto_clear_wifi_password(void) {
+    uint8_t zeros[32];
+    memset(zeros, 0, 32);
+
+    // Write zeros to Slot 8, Block 3
+    ATCA_STATUS status = atcab_write_zone(
+        ATCA_ZONE_DATA,
+        SLOT_HOST_PUBKEY,  // Slot 8
+        3,                 // Block 3
+        0,                 // Offset
+        zeros,
+        32
+    );
+
+    return (status == ATCA_SUCCESS);
+}
+
 int crypto_hex_to_bytes(const char* hex_str, uint8_t* out_bytes, size_t max_bytes) {
     if (!hex_str || !out_bytes) return -1;
 

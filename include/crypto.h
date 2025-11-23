@@ -136,6 +136,11 @@ bool crypto_derive_session_key(const uint8_t* shared_secret, uint8_t* session_ke
 #define SLOT_PERMANENT_PRIVKEY  0   // Permanent private key for signing
 #define SLOT_HOST_PUBKEY        8   // Host's permanent public key (64 bytes)
 
+// ATECC608A Slot 8 block assignments
+// Block 0-1: Host public key (64 bytes)
+// Block 2: Golden hash (32 bytes)
+// Block 3: WiFi password (32 bytes, max 31 chars + null)
+
 // Key sizes
 #define ECDH_PUBKEY_SIZE       64   // P-256 public key (X + Y coordinates)
 #define ECDH_SIGNATURE_SIZE    64   // ECDSA signature (R + S components)
@@ -187,6 +192,35 @@ bool crypto_ecdh_read_host_pubkey(uint8_t* host_pubkey_out);
  * @return true on success, false otherwise
  */
 bool crypto_set_host_pubkey(const uint8_t* host_pubkey);
+
+/**
+ * @brief Write WiFi password to ATECC608A Slot 8 Block 3
+ *
+ * Stores WiFi password (max 31 chars + null) in ATECC608A.
+ * Remainder of 32-byte block is zero-padded.
+ *
+ * @param password Null-terminated password string (max 31 chars)
+ * @return true on success, false otherwise
+ */
+bool crypto_write_wifi_password(const char* password);
+
+/**
+ * @brief Read WiFi password from ATECC608A Slot 8 Block 3
+ *
+ * @param password_out Buffer to receive password (must be at least 32 bytes)
+ * @param max_len Size of password_out buffer
+ * @return true if password exists and was read, false if empty or error
+ */
+bool crypto_read_wifi_password(char* password_out, size_t max_len);
+
+/**
+ * @brief Clear WiFi password from ATECC608A Slot 8 Block 3
+ *
+ * Writes zeros to the password block.
+ *
+ * @return true on success, false otherwise
+ */
+bool crypto_clear_wifi_password(void);
 
 // Token permanent public key prefetch/cache API
 // Spawn background task (idempotent) to prefetch token permanent public key

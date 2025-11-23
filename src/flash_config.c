@@ -46,14 +46,9 @@ bool flash_write_wifi_password(const char *password) {
 
     print_dbg("[Flash] Writing WiFi password (system will freeze for ~45ms)\n");
 
-    // Halt core 1 (WiFi driver runs there)
-    multicore_lockout_start_blocking();
-
-    // Suspend FreeRTOS scheduler
-    vTaskSuspendAll();
-
-    // Disable interrupts and perform flash operation
+    // Correct order per Pico SDK: interrupts first, then multicore lockout
     uint32_t ints = save_and_disable_interrupts();
+    multicore_lockout_start_blocking();
 
     // Erase entire config sector (~45ms)
     flash_range_erase(CONFIG_FLASH_OFFSET, FLASH_SECTOR_SIZE);
@@ -61,13 +56,9 @@ bool flash_write_wifi_password(const char *password) {
     // Program first page with password and flag
     flash_range_program(CONFIG_FLASH_OFFSET, page_buffer, FLASH_PAGE_SIZE);
 
-    restore_interrupts(ints);
-
-    // Resume scheduler
-    xTaskResumeAll();
-
-    // Resume core 1
+    // Restore in reverse order: multicore first, then interrupts
     multicore_lockout_end_blocking();
+    restore_interrupts(ints);
 
     print_dbg("[Flash] WiFi password written successfully\n");
     return true;
@@ -99,22 +90,16 @@ bool flash_read_wifi_password(char *password, size_t max_len) {
 bool flash_clear_wifi_password(void) {
     print_dbg("[Flash] Clearing WiFi password (system will freeze for ~45ms)\n");
 
-    // Halt core 1
+    // Correct order per Pico SDK: interrupts first, then multicore lockout
+    uint32_t ints = save_and_disable_interrupts();
     multicore_lockout_start_blocking();
 
-    // Suspend FreeRTOS scheduler
-    vTaskSuspendAll();
-
-    // Disable interrupts and erase config sector
-    uint32_t ints = save_and_disable_interrupts();
+    // Erase config sector
     flash_range_erase(CONFIG_FLASH_OFFSET, FLASH_SECTOR_SIZE);
-    restore_interrupts(ints);
 
-    // Resume scheduler
-    xTaskResumeAll();
-
-    // Resume core 1
+    // Restore in reverse order: multicore first, then interrupts
     multicore_lockout_end_blocking();
+    restore_interrupts(ints);
 
     print_dbg("[Flash] WiFi password cleared from flash\n");
     return true;
