@@ -191,7 +191,6 @@ class KeyringStorage(KeyStorageInterface):
         Tests by checking if keyctl command exists and keyring is accessible.
         """
         try:
-            # Try to list the keyring
             cmd = ['keyctl', 'list', self.keyring_type]
             
             result = subprocess.run(
@@ -199,8 +198,6 @@ class KeyringStorage(KeyStorageInterface):
                 capture_output=True,
                 timeout=2.0
             )
-            
-            # If we can list the keyring, it's available
             return result.returncode == 0
             
         except (FileNotFoundError, subprocess.TimeoutExpired):

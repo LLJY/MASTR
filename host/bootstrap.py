@@ -44,7 +44,7 @@ class BootstrapHost(MASTRHost):
             baudrate=baudrate,
             crypto=crypto,
             verbose=debug_mode,
-            skip_key_storage=False  # We want to store the key for the runtime OS
+            skip_key_storage=False
         )
         self.debug_mode = debug_mode
 

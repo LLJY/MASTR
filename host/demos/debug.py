@@ -2,7 +2,7 @@
 Debug and testing tool for the MASTR protocol.
 Provides interactive commands to test all protocol message types.
 """
-# AI use delcaration: ONLY the skeleton code and documentation here is ai assisted.
+
 import sys
 import argparse
 import time
@@ -146,7 +146,6 @@ class ProtocolDebugger:
                 print(f"  {Colors.GREEN}[KEY]{Colors.RESET} Token permanent pubkey received")
                 print(f"    X: {frame.payload[:32].hex()}")
                 print(f"    Y: {frame.payload[32:].hex()}")
-                # Auto-save to file
                 try:
                     with open('token_permanent_pubkey.bin', 'wb') as f:
                         f.write(frame.payload)
@@ -197,7 +196,6 @@ class ProtocolDebugger:
                     import select
                     
                     while self.handler.is_connected and self.handler._running:
-                        # Check for user input (non-blocking on Unix)
                         if sys.platform != 'win32':
                             if select.select([sys.stdin], [], [], 0.1)[0]:
                                 cmd = sys.stdin.readline().strip().lower()
@@ -211,7 +209,6 @@ class ProtocolDebugger:
                     self.handler.disconnect()
                     time.sleep(0.5)
                 else:
-                    # Device not available, wait before retrying
                     time.sleep(0.5)
         
         except KeyboardInterrupt:
@@ -286,7 +283,7 @@ class ProtocolDebugger:
             return
         
         elif cmd == 'clear':
-            print('\033[2J\033[H', end='')  # Clear screen
+            print('\033[2J\033[H', end='')
             self._print_banner()
             return
         
@@ -340,21 +337,21 @@ class ProtocolDebugger:
         elif cmd == 'boot_ack':
             self._send_command(
                 MessageType.H2T_BOOT_OK_ACK,
-                b'',  # Empty payload
+                b'',
                 "H2T_BOOT_OK_ACK"
             )
         
         elif cmd == 'halt':
             self._send_command(
                 MessageType.H2T_INTEGRITY_FAIL_HALT,
-                b'',  # Empty payload
+                b'',
                 "H2T_INTEGRITY_FAIL_HALT"
             )
         
         elif cmd == 'halt_ack':
             self._send_command(
                 MessageType.INTEGRITY_FAIL_ACK,
-                b'',  # Empty payload
+                b'',
                 "INTEGRITY_FAIL_ACK"
             )
         
@@ -362,7 +359,7 @@ class ProtocolDebugger:
         elif cmd in ['hb', 'heartbeat']:
             self._send_command(
                 MessageType.H2T_HEARTBEAT,
-                b'',  # Empty payload (could add sequence number)
+                b'',
                 "H2T_HEARTBEAT"
             )
         
@@ -370,7 +367,7 @@ class ProtocolDebugger:
         elif cmd in ['r', 'random']:
             self._send_command(
                 MessageType.H2T_TEST_RANDOM_REQUEST,
-                b'',  # Empty payload
+                b'',
                 "H2T_TEST_RANDOM_REQUEST"
             )
         
@@ -437,7 +434,7 @@ class ProtocolDebugger:
             encoding=serialization.Encoding.X962,
             format=serialization.PublicFormat.UncompressedPoint
         )
-        self.host_pubkey_raw = pubkey_bytes[1:]  # Remove 0x04 prefix
+        self.host_pubkey_raw = pubkey_bytes[1:]
         
         try:
             with open('host_permanent_pubkey.bin', 'wb') as f:
@@ -455,7 +452,6 @@ class ProtocolDebugger:
     def _send_host_pubkey(self):
         """Send host's permanent public key to token"""
         if self.host_pubkey_raw is None:
-            # Try to load from file
             try:
                 with open('host_permanent_pubkey.bin', 'rb') as f:
                     self.host_pubkey_raw = f.read()
@@ -492,7 +488,7 @@ class ProtocolDebugger:
             b'\x00' * 64,  # Dummy payload
             "Request token pubkey"
         )
-        time.sleep(1.0)  # Wait for response
+        time.sleep(1.0)
         
         # Step 3: Send host pubkey
         if self.host_pubkey_raw:

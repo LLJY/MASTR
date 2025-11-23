@@ -134,7 +134,7 @@ class HybridKeyStorage(KeyStorageInterface):
             return True
         else:
             Logger.warning("Session key not found in any backend (already deleted?)")
-            return True  # Not an error if already deleted
+            return True
     
     def is_available(self) -> bool:
         """
