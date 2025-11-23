@@ -15,7 +15,6 @@
 #include <string.h>
 #include "pico/time.h"
 #include "serial.h"
-// Forward declaration for cpu_get_percent (optional header could be added later)
 
 
 // Tick-based idle accounting reinstated for fallback stability.
@@ -47,7 +46,7 @@ static uint32_t cpu_calculate_percent(void)
     static uint32_t acc_idle  = 0;
     static uint32_t last_percent = 0;
 
-    // If scheduler not running yet, just return last cached percent.
+    // Return last known if scheduler not running
     if (xTaskGetSchedulerState() != taskSCHEDULER_RUNNING) {
         return last_percent;
     }

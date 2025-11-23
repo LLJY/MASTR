@@ -16,7 +16,6 @@
 #include "mock_pico_sdk.h"
 #endif
 
-// Global protocol state
 protocol_state_t g_protocol_state = {0};
 
 // store golden hash and public key
@@ -27,7 +26,6 @@ void protocol_provision(const uint8_t* p_golden_hash,
 {
     #ifndef UNIT_TEST
 
-    // sanity check the lengths
     if(golden_hash_len != 32 || pub_key_len != 64)
         return;
 
@@ -46,17 +44,15 @@ void protocol_unprovision(void){
     return;
 }
 
-// check if the protocol is provisioned, if not perform some function...
+// check if the protocol is provisioned
 bool protocol_check_provisioned(void) {
 
-    // Force 4-byte alignment
     static uint8_t host_pubkey[64] __attribute__((aligned(4)));
 
     if (crypto_ecdh_read_host_pubkey(host_pubkey) != true){
         return false;
     }
 
-    // Force 4-byte alignment
     static uint8_t golden_hash[32] __attribute__((aligned(4)));
     if (crypto_get_golden_hash(golden_hash) != true){
         return false;
@@ -69,7 +65,7 @@ bool protocol_check_provisioned(void) {
         memcmp(golden_hash, zeros, sizeof(golden_hash)) == 0)
         return false;
 
-    return true; // Provisioned
+    return true; 
 }
 // ============================================================================
 // Session Management Functions
@@ -177,15 +173,13 @@ void protocol_enter_halt_spam_state(void) {
     // Spam T2H_INTEGRITY_FAIL_HALT indefinitely
     while (true) {
         send_message(T2H_INTEGRITY_FAIL_HALT, NULL, 0);
-        vTaskDelay(pdMS_TO_TICKS(1000));  // Spam every second
+        vTaskDelay(pdMS_TO_TICKS(1000)); 
     }
     __builtin_unreachable();
     #endif
 }
 
 
-// to be run in main
-// pull all the data from the ATECC to fill the protocol_state_t protocol_state struct.
 void set_protocol_initial_state(){
     g_protocol_state.protocol_begin_timestamp = time_us_64();
 }
@@ -338,7 +332,6 @@ void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload
                 // Advance to phase 2 - integrity verification
                 g_protocol_state.current_state = 0x30;
 
-                // delay here for some arbitrary time, host is sometimes slow with tpm
                 pico_delay_ms(SLOW_HOST_COMPENSATION_MSECS);
 
                 #ifndef UNIT_TEST
@@ -355,9 +348,9 @@ void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload
         case H2T_INTEGRITY_RESPONSE:
             if(g_protocol_state.current_state != 0x30){
                 print_dbg("ERROR: Channel verify response rejected (wrong state: 0x%02X)\n", g_protocol_state.current_state);
-                // disallowed state (desync)
+
                 send_shutdown_signal();
-                break; // should never reach
+                break;
             }
 
             if(len != 96){
@@ -366,9 +359,7 @@ void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload
             }
 
             print_dbg("Handler: H2T_INTEGRITY_RESPONSE started\n");
-            // payload here contains hash + sig (hash_nonce)
 
-            // separate the payload into hash and sig
             uint8_t hash[32];
             memcpy(hash, payload, 32);
 
@@ -390,7 +381,7 @@ void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload
                 // Signature verification failed - enter permanent halt state
                 print_dbg("ERROR: Integrity challenge signature verification failed\n");
                 protocol_enter_halt_spam_state();
-                break; // should never reach
+                break;
             }
 
             uint8_t p_golden_hash[32];
@@ -402,15 +393,15 @@ void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload
             }
 
             if(memcmp(hash, p_golden_hash, 32)){
-                // Golden hash mismatch - enter permanent halt state
+
                 print_dbg("ERROR: Golden hash mismatch detected\n");
                 protocol_enter_halt_spam_state();
-                break; // should never reach
+                break;
             }
 
             send_message(T2H_BOOT_OK, NULL, 0);
 
-            // advance state and wait for ACK
+            // wait for ACK
             g_protocol_state.current_state = 0x32;
             break;
 
@@ -424,7 +415,7 @@ void protocol_handle_validated_message(message_type_t msg_type, uint8_t* payload
             // Start new session with configured timeout
             g_protocol_state.session_valid = true;
             g_protocol_state.session_start_timestamp = time_us_64();
-            g_protocol_state.session_timeout_ms = 30000;  // Default: 30 seconds
+            g_protocol_state.session_timeout_ms = 30000;
 
             print_dbg("Session established - entering runtime (timeout: %dms)\n",
                       g_protocol_state.session_timeout_ms);
