@@ -168,12 +168,14 @@ add_executable(pico_project_template
     src/net/http/http_server.c
     src/net/api/api.c
     src/net/dhcp/dhcpserver.c
+    src/flash_config.c
 )
 
 # Link to pico_stdlib
 target_link_libraries(pico_project_template
     pico_stdlib
     hardware_i2c
+    hardware_gpio
     cryptoauth
     pico_mbedtls
     FreeRTOS-Kernel-Heap4
@@ -182,6 +184,9 @@ target_link_libraries(pico_project_template
     pico_lwip_http
     hardware_adc
     hardware_watchdog
+    hardware_flash
+    hardware_sync
+    pico_multicore
 )
 
 # Enable usb output, disable uart output

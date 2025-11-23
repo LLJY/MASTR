@@ -42,7 +42,7 @@ class MockToken:
         self.pubkey_bytes = self.pubkey.public_bytes(
             encoding=serialization.Encoding.X962,
             format=serialization.PublicFormat.UncompressedPoint
-        )[1:] # Skip 0x04 prefix for raw bytes
+        )[1:]
 
         # State
         self.state = MockTokenState.WAIT_ECDH
@@ -52,7 +52,7 @@ class MockToken:
         
         # Host info
         self.host_pubkey = None
-        self.golden_hash = bytes(32) # Default zero hash
+        self.golden_hash = bytes(32)
         
         # Ephemeral
         self.ephemeral_privkey = None
@@ -209,7 +209,7 @@ class MockToken:
             time.sleep(1.0)
             
             # Token initiates channel verify
-            self.is_encrypted = True # Enable encryption now
+            self.is_encrypted = True
             self._send_frame(MessageType.T2H_CHANNEL_VERIFY_REQUEST, b'ping')
             self.state = MockTokenState.CHANNEL_VERIFY
 
@@ -274,7 +274,6 @@ class MockToken:
                 return
             
             self.state = MockTokenState.RUNTIME
-            # Session established
             self.session_valid = True
             self.session_start_timestamp = time.time()
 
@@ -309,7 +308,7 @@ class TestBootstrapComprehensive(unittest.TestCase):
 
         # Create Host with NaiveCrypto (easier to manage keys than TPM mock)
         self.crypto = NaiveCrypto()
-        # Ensure crypto has keys
+
         if not self.crypto.load_permanent_keys():
             self.crypto.generate_permanent_keypair()
 
@@ -326,7 +325,6 @@ class TestBootstrapComprehensive(unittest.TestCase):
         import hashlib
         self.test_data = b'test_golden_data_for_verification'
 
-        # Check if testfile already exists - if so, preserve it
         self.testfile_existed = os.path.exists('testfile')
         if self.testfile_existed:
             with open('testfile', 'rb') as f:
@@ -334,7 +332,6 @@ class TestBootstrapComprehensive(unittest.TestCase):
         else:
             self.original_testfile_content = None
 
-        # Write test data to the file that host will hash
         with open('testfile', 'wb') as f:
             f.write(self.test_data)
 
@@ -417,14 +414,12 @@ class TestBootstrapComprehensive(unittest.TestCase):
             # File didn't exist before - remove it
             if os.path.exists('testfile'):
                 os.remove('testfile')
-
-        # Stop token threads
         self.token.stop()
 
     def test_full_handshake_success(self):
         """Test a complete successful handshake"""
         host = BootstrapHost(port='/dev/test', crypto=self.crypto, debug_mode=True)
-        self.host_instance = host # For side_effect
+        self.host_instance = host
         
         # Run bootstrap
         exit_code = host.bootstrap()
@@ -485,7 +480,6 @@ class TestBootstrapComprehensive(unittest.TestCase):
         exit_code = host.bootstrap()
         
         self.assertEqual(exit_code, 1)
-        # Should have logged PANIC
 
     def test_out_of_order_message(self):
         """Test token rejecting out of order message"""
@@ -493,8 +487,6 @@ class TestBootstrapComprehensive(unittest.TestCase):
         # But we can verify the token mock rejects it.
         
         self.token.receive_frame(MessageType.H2T_INTEGRITY_RESPONSE, b'\x00'*96)
-        
-        # Token should send error
         self.assertTrue(len(self.token.out_queue) > 0)
         frame = self.token.out_queue[0]
         self.assertEqual(frame.msg_type, MessageType.T2H_ERROR)

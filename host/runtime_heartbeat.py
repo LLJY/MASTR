@@ -76,7 +76,7 @@ class HeartbeatDaemon:
         self.token_ecdh_share: Optional[bytes] = None
         self.reattestation_requested = threading.Event()
         self.boot_ok_received = threading.Event()  # Signal re-attestation complete
-        self.reattestation_in_progress = False  # Flag to pause heartbeats during re-attestation
+        self.reattestation_in_progress = False     # Flag to pause heartbeats during re-attestation
 
         # Threading synchronization
         self.ack_event = threading.Event()
@@ -225,7 +225,7 @@ class HeartbeatDaemon:
         while self.running:
             # Skip heartbeats during re-attestation
             if self.reattestation_in_progress:
-                time.sleep(0.5)  # Short sleep, then check again
+                time.sleep(0.5)
                 continue
             
             heartbeat_count += 1
@@ -296,8 +296,8 @@ class HeartbeatDaemon:
             self.reattestation_in_progress = True
             
             if self._perform_reattestation():
-                Logger.success("Re-attestation ECDH complete - waiting for BOOT_OK...")
                 # Don't resume yet - wait for BOOT_OK
+                Logger.success("Re-attestation ECDH complete - waiting for BOOT_OK...")
             else:
                 Logger.error("Re-attestation failed - emergency shutdown!")
                 self.reattestation_in_progress = False
@@ -404,7 +404,6 @@ class HeartbeatDaemon:
         notify the token.
         """
         try:
-            # Try to read LKRG status from /proc/lkrg
             with open('/proc/lkrg', 'r') as f:
                 status = f.read()
                 
@@ -412,19 +411,12 @@ class HeartbeatDaemon:
                 if 'INTEGRITY VIOLATION' in status.upper():
                     Logger.error("LKRG INTEGRITY VIOLATION DETECTED!")
                     Logger.error("System integrity compromised - alerting token")
-                    
-                    # TODO: Send alert message to token
-                    # Token can trigger its own emergency halt
-                    # For now, just log it
-                    
+ 
         except FileNotFoundError:
-            # LKRG not installed - this is not an error in runtime
             pass
         except PermissionError:
-            # No permission to read LKRG status
             Logger.warning("No permission to read /proc/lkrg")
         except Exception as e:
-            # Other errors reading LKRG
             Logger.warning(f"Failed to check LKRG status: {e}")
     
     def _perform_reattestation(self) -> bool:

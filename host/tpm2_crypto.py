@@ -96,7 +96,6 @@ class TPM2Crypto(CryptoInterface):
                 self.esapi.evict_control(ESYS_TR.OWNER, loaded_handle, self.HOST_PERMANENT_KEY_HANDLE)
                 self.esapi.flush_context(loaded_handle)
             except (TSS2_Exception, Exception):
-                # Key doesn't exist yet, which is fine
                 pass
 
             # Create an ECC primary key
