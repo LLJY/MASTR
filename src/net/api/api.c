@@ -4,6 +4,8 @@
 #include "pico/cyw43_arch.h"
 #include "hardware/adc.h"
 #include "lwip/ip4_addr.h"
+#include "lwip/tcp.h"
+#include "constants.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
@@ -14,9 +16,9 @@
 #include "dhcpserver.h"
 #include "crypto.h"
 #include "wifi_ap.h"
+#include "flash_config.h"
 #include "cryptoauthlib.h"
 #include "cpu_monitor.h"
-#include "wifi_ap.h"
 
 // Forward-declared timer for deferred AP password rotation after claim
 #include "FreeRTOS.h"
@@ -38,7 +40,7 @@
 static bool g_claimed = false;
 // Cache the last generated password so we can optionally re-display or debug
 static char g_last_psk[33] = ""; // 32 chars + NUL
-static const uint32_t CLAIM_GRACE_MS = 750; // client sees password then AP restarts
+static const uint32_t CLAIM_GRACE_MS = 2000; // TCP close + client reconnect time
 
 // Bearer token authentication state
 static char g_bearer_token[65] = ""; // 64 hex chars + NUL (256-bit token)
@@ -46,23 +48,10 @@ static bool g_bearer_token_generated = false;
 
 // Token pubkey caching/prefetch handled by crypt.c now
 
-// One-shot timer callback to restart AP with new password
-// Worker task to perform AP restart in a normal task context (not timer task)
-static void ap_restart_task(void *arg) {
-    uint32_t delay_ms = (uint32_t)(uintptr_t)arg;
-    if (delay_ms < 50) {
-        delay_ms = 50; // always give the TCP stack a moment to flush
-    }
-    vTaskDelay(pdMS_TO_TICKS(delay_ms));
-    if (g_last_psk[0] != '\0') {
-        print_dbg("[API] AP restart task: rotating password\n");
-        bool ok = wifi_ap_rotate_password(g_last_psk);
-        print_dbg("[API] AP restart task: rotate result=%d\n", ok ? 1 : 0);
-    } else {
-        print_dbg("[API] AP restart task: no cached PSK, skipping rotate\n");
-    }
-    vTaskDelete(NULL);
-}
+// Forward declarations (reset_timer_cb removed if not used)
+
+// NOTE: Removed timer+task pattern. Now using background task (crypto_spawn_wifi_password_task)
+// The write is queued via crypto_queue_wifi_password_write() directly from claim_handler
 
 // Generate a random WPA2 passphrase (length between 16 and 24) using get_rand_32()
 static void generate_random_psk(char *out, size_t out_len) {
@@ -139,29 +128,44 @@ bool http_validate_bearer_token(const char *request) {
 static void claim_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
     print_dbg("[API] claim_handler called (claimed=%d)\n", g_claimed ? 1 : 0);
+    
+    #ifdef DEBUG
+    // In debug mode, allow re-claiming
+    if (g_claimed) {
+        print_dbg("[API] DEBUG: Allowing re-claim\n");
+        g_claimed = false;
+    }
+    #endif
+
     if (g_claimed) {
         http_send_json(pcb, 409, "{\"error\":\"already_claimed\"}");
         return;
     }
-    generate_random_psk(g_last_psk, sizeof(g_last_psk));
-    g_claimed = true;
 
-    // Spawn a one-shot worker to rotate AP after grace period so response is delivered first.
-    if (xTaskCreate(ap_restart_task, "ap_rst", 2048, (void *)(uintptr_t)CLAIM_GRACE_MS, tskIDLE_PRIORITY + 2, NULL) != pdPASS) {
-        print_dbg("[API] claim: failed to spawn ap_rst task; rotating synchronously\n");
-        // Last-resort fallback: rotate inline (may briefly block)
-        if (g_last_psk[0] != '\0') {
-            bool ok = wifi_ap_rotate_password(g_last_psk);
-            print_dbg("[API] claim: inline rotate result=%d\n", ok ? 1 : 0);
-        }
-    }
+    // Generate random WPA2 password
+    generate_random_psk(g_last_psk, sizeof(g_last_psk));
+
+    g_claimed = true;
+    print_dbg("[API] About to send JSON response\n");
 
     char body[160];
     int n = snprintf(body, sizeof(body),
-                     "{\"status\":\"ok\",\"ssid\":\"%s\",\"new_password\":\"%s\",\"reconnect_in_ms\":%u}",
-                     wifi_ap_get_config()->ssid, g_last_psk, CLAIM_GRACE_MS);
+                     "{\"status\":\"ok\",\"ssid\":\"%s\",\"new_password\":\"%s\",\"message\":\"reboot_device\"}",
+                     wifi_ap_get_config()->ssid, g_last_psk);
     (void)n;
+
+    print_dbg("[API] Calling http_send_json\n");
     http_send_json(pcb, 200, body);
+
+    print_dbg("[API] http_send_json returned\n");
+
+    // Queue WiFi password write to background task (non-blocking)
+    // This uses the same pattern as golden_hash writes for reliability
+    if (crypto_queue_wifi_password_write(g_last_psk)) {
+        print_dbg("[API] WiFi password queued for ATECC write\n");
+    } else {
+        print_dbg("[API] ERROR: Failed to queue WiFi password (task busy or not spawned)\n");
+    }
 }
 
 // Generate bearer token handler - POST /api/auth/generate-token
@@ -169,33 +173,37 @@ static void claim_handler(struct tcp_pcb *pcb, const char *request) {
 // Can only be called once per device startup (when token is not yet generated)
 static void generate_token_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
-    API_DBG("[API] generate_token_handler called\n");
-    
-#ifndef DEBUG
+
     if (g_bearer_token_generated) {
-        // Token already generated - return 409 Conflict
+#ifdef DEBUG
+        // DEBUG: Return the existing token instead of 409
+        char body[200];
+        int n = snprintf(body, sizeof(body),
+            "{\"status\":\"ok\",\"bearer_token\":\"%s\",\"message\":\"Existing bearer token (DEBUG mode)\"}",
+            g_bearer_token);
+        (void)n;
+        http_send_json(pcb, 200, body);
+        return;
+#else
+        // PRODUCTION: Return 409 Conflict
         http_send_json(pcb, 409, "{\"error\":\"token_already_generated\",\"message\":\"Bearer token has already been issued for this device session\"}");
         return;
-    }
-#else
-    if (g_bearer_token_generated) {
-        API_DBG("[API] DEBUG build: regenerating bearer token for testing\n");
-    }
 #endif
-    
-    // Generate new bearer token
+    }
+
+    // Generate new bearer token (first request only)
     generate_bearer_token(g_bearer_token, sizeof(g_bearer_token));
     g_bearer_token_generated = true;
-    
+
     API_DBG("[API] Bearer token generated: %s\n", g_bearer_token);
-    
+
     // Return the token to the client
     char body[200];
     int n = snprintf(body, sizeof(body),
         "{\"status\":\"ok\",\"bearer_token\":\"%s\",\"message\":\"Store this token securely - it is your device password\"}",
         g_bearer_token);
     (void)n;
-    
+
     http_send_json(pcb, 200, body);
 }
 
@@ -655,68 +663,171 @@ static void golden_hash_status_handler(struct tcp_pcb *pcb, const char *request)
     }
 }
 
-#ifdef DEBUG
+// Deferred reset task (runs after response is sent)
+// Available in all builds for university module
+static void reset_task(void *arg) {
+    (void)arg;
+
+    print_dbg("[API] Reset task: clearing ATECC608A provisioning data\n");
+    protocol_unprovision();
+
+    print_dbg("[API] Reset task: clearing WiFi password from ATECC608A\n");
+    if (!crypto_clear_wifi_password()) {
+        print_dbg("[API] ERROR: Failed to clear WiFi password\n");
+    } else {
+        print_dbg("[API] WiFi password cleared from ATECC successfully\n");
+    }
+
+    print_dbg("[API] Reset complete - device should be rebooted\n");
+
+    // Task completes
+    vTaskDelete(NULL);
+}
+
+// Timer callback for reset endpoint
+// Runs in timer daemon context (safe to call xTaskCreate)
+static void reset_timer_cb(TimerHandle_t timer) {
+    print_dbg("[API] Reset timer fired, creating reset task\n");
+
+    BaseType_t result = xTaskCreate(
+        reset_task,
+        "Reset",
+        DEFAULT_STACK_SIZE,
+        NULL,
+        15,  // Medium priority
+        NULL
+    );
+
+    if (result != pdPASS) {
+        print_dbg("[API] ERROR: Failed to create reset task from timer\n");
+    }
+
+    // Delete the one-shot timer
+    xTimerDelete(timer, 0);
+}
+
 static void reset_api_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request; // Unused parameter
-        
-    protocol_unprovision();
-    
+
+    print_dbg("[API] reset_api_handler called\n");
+
+    // Clear claimed flag immediately (safe, no hardware access)
+    g_claimed = false;
+
+    // Send response immediately (before any hardware operations)
+    print_dbg("[API] Sending reset response\n");
     char response[150];
-    snprintf(response, sizeof(response), "{\"status\":\"success\",");
+    snprintf(response, sizeof(response), "{\"status\":\"success\",\"message\":\"reboot_device\"}");
     http_send_json(pcb, 200, response);
+
+    print_dbg("[API] Response sent, creating timer\n");
+
+    // Use a FreeRTOS timer instead of creating task directly
+    // This avoids calling xTaskCreate() from lwIP context which causes deadlock
+    TimerHandle_t timer = xTimerCreate(
+        "ResetTimer",
+        pdMS_TO_TICKS(2000),  // 2 second delay
+        pdFALSE,              // One-shot timer
+        NULL,
+        reset_timer_cb        // Timer callback will create the task
+    );
+
+    if (timer != NULL) {
+        if (xTimerStart(timer, 0) == pdPASS) {
+            print_dbg("[API] Reset scheduled via timer\n");
+        } else {
+            print_dbg("[API] ERROR: Failed to start reset timer\n");
+            xTimerDelete(timer, 0);
+        }
+    } else {
+        print_dbg("[API] ERROR: Failed to create reset timer\n");
+    }
+}
+
+#ifdef DEBUG
+static void wifi_password_reset_handler(struct tcp_pcb *pcb, const char *request) {
+    (void)request; // Unused parameter
+
+    print_dbg("[API] WiFi password reset requested (DEBUG mode)\n");
+
+    if (!flash_clear_wifi_password()) {
+        http_send_json(pcb, 500, "{\"error\":\"flash_clear_failed\"}");
+        return;
+    }
+
+    g_claimed = false;
+
+    http_send_json(pcb, 200,
+        "{\"status\":\"password_cleared\",\"message\":\"reboot_to_open_ap\"}");
 }
 #endif
 
 void api_register_routes(void) {
-    // Public endpoints (no auth required)
+    bool password_set = wifi_ap_is_password_set();
+    bool provisioned = (g_protocol_state.current_state != PROTOCOL_STATE_UNPROVISIONED);
+
+    // Check if claimed (password pending write to flash/AP rotation)
+    // g_claimed is set immediately when /api/claim is called, before flash write
+    bool claimed_or_password_set = password_set || g_claimed;
+
+    // Always expose health checks (no auth)
     http_register("/api/ping", ping_handler);
     http_register("/api/health", health_handler);
-    http_register("/api/auth/generate-token", generate_token_handler);  // Generate bearer token (one-time)
-    
-    // Protected endpoints (require bearer token in Authorization header)
-    http_register_auth("/api/status", status_handler, true);
-    http_register_auth("/api/network", network_handler, true);
-    http_register_auth("/api/ram", ram_handler, true);
-    http_register_auth("/api/temp", temperature_handler, true);
-    http_register_auth("/api/cpu", cpu_handler, true);
+
+    // Always spawn WiFi password task (needed for claim endpoint in all states)
+    crypto_spawn_wifi_password_task();
+
+    // STATE 1: No password and not claimed → Only claim endpoint (NO bearer token)
+    if (!claimed_or_password_set) {
+        http_register("/api/claim", claim_handler);  // NO AUTH
+        print_dbg("API: UNCLAIMED state - only /api/claim exposed (no auth)\n");
+        return;
+    }
+
+    // STATE 2+: Password set → Expose bearer token generation
+    http_register("/api/auth/generate-token", generate_token_handler);
+
+    // Always expose claim with auth (for password rotation)
     http_register_auth("/api/claim", claim_handler, true);
-    
-    print_dbg("protocol state is currently at: 0x%02X", g_protocol_state.current_state);
-    if(g_protocol_state.current_state == PROTOCOL_STATE_UNPROVISIONED){
-        // Provisioning token public key endpoint (single canonical path) - protected
+
+    if (!provisioned) {
+        // STATE 2: Password set, not provisioned → Provisioning endpoints
         http_register_auth("/api/provision/token_info", token_info_handler, true);
-        // Provisioning host public key endpoints (non-blocking versions) - protected
-        http_register_auth("/api/provision/host_pubkey", set_host_pubkey_handler, true);  // POST to set
-        http_register_auth("/api/provision/host_pubkey/get", get_host_pubkey_handler, true);  // GET to read
-        http_register_auth("/api/provision/host_pubkey/status", host_pubkey_status_handler, true);  // GET write status
-        // Provisioning golden hash endpoints (non-blocking versions) - protected
-        http_register_auth("/api/provision/golden_hash", set_golden_hash_handler, true);  // POST to set
-        http_register_auth("/api/provision/golden_hash/status", golden_hash_status_handler, true);  // GET status
-    }else{
-        print_dbg("protocol has already been provisioned, skipping provisioning endpoints...");
+        http_register_auth("/api/provision/host_pubkey", set_host_pubkey_handler, true);
+        http_register_auth("/api/provision/host_pubkey/get", get_host_pubkey_handler, true);
+        http_register_auth("/api/provision/host_pubkey/status", host_pubkey_status_handler, true);
+        http_register_auth("/api/provision/golden_hash", set_golden_hash_handler, true);
+        http_register_auth("/api/provision/golden_hash/status", golden_hash_status_handler, true);
+
+        print_dbg("API: CLAIMED state - provisioning endpoints exposed\n");
+
+    } else {
+        // STATE 3: Provisioned → Monitoring endpoints
+        http_register_auth("/api/status", status_handler, true);
+        http_register_auth("/api/network", network_handler, true);
+        http_register_auth("/api/ram", ram_handler, true);
+        http_register_auth("/api/temp", temperature_handler, true);
+        http_register_auth("/api/cpu", cpu_handler, true);
+
+        print_dbg("API: PROVISIONED state - monitoring endpoints exposed\n");
     }
-    #ifdef DEBUG
-    if(g_protocol_state.current_state != PROTOCOL_STATE_UNPROVISIONED){
-        // when in debug, register endpoints anyway.
-        http_register_auth("/api/provision/token_info", token_info_handler, true);
-        http_register_auth("/api/provision/host_pubkey", set_host_pubkey_handler, true);  // POST to set
-        http_register_auth("/api/provision/host_pubkey/get", get_host_pubkey_handler, true);  // GET to read
-        http_register_auth("/api/provision/host_pubkey/status", host_pubkey_status_handler, true);  // GET write status
-        http_register_auth("/api/provision/golden_hash", set_golden_hash_handler, true);  // POST to set
-        http_register_auth("/api/provision/golden_hash/status", golden_hash_status_handler, true);  // GET status
-        
-        // also register an additional viewpoint for token reset.
-        http_register_auth("/api/provision/reset", reset_api_handler, true); 
-    }
-    #endif
-    // Ask crypt layer to spawn prefetch task (low priority)
+
+    // Always spawn crypto tasks when password is set (both STATE 2 and STATE 3)
+    // These are required for the serial protocol to function
     crypto_spawn_pubkey_prefetch();
-    
-    // Start background task for host pubkey operations (non-blocking)
     crypto_spawn_host_pubkey_task();
-    
-    // Start background task for golden hash operations (non-blocking)
     crypto_spawn_golden_hash_task();
-    
-    ////print_dbg("API routes registered\n");
+    // WiFi password task already spawned above (line 791) for all states
+
+    // Expose token_info and reset in all builds (for university module)
+    if (provisioned) {
+        http_register_auth("/api/provision/token_info", token_info_handler, true);
+        http_register_auth("/api/provision/reset", reset_api_handler, true);
+    }
+
+    #ifdef DEBUG
+    // Debug mode: WiFi password reset endpoint
+    http_register_auth("/api/wifi/reset", wifi_password_reset_handler, true);
+    print_dbg("API: DEBUG mode - reset endpoints enabled\n");
+    #endif
 }
