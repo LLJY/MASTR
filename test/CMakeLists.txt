@@ -41,16 +41,28 @@ add_executable(run_tests
     test_provisioning.c
     test_api.c
 
+    # HTTP server test suite (26 tests)
+    test_http_server.c
+
+    # WiFi AP test suite (30 tests)
+    test_wifi_ap.c
+
     # Mocks (hardware abstraction only)
     mocks/mock_pico_sdk.c
     mocks/mock_crypto.c
     mocks/mock_time.c
     mocks/mock_atca.c
+    mocks/mock_lwip.c
+    mocks/mock_wifi.c
 
     # Source files under test (including real crypto.c!)
     ../src/serial.c
     ../src/protocol.c
     ../src/crypto.c
+    ../src/net/http/http_server.c
+    ../src/net/wifi_ap.c
+    ../src/net/ap/ap_manager.c
+    # Note: API endpoints are tested via test_api.c
 )
 
 # --- Configure Include Directories ---
@@ -58,6 +70,7 @@ target_include_directories(run_tests PRIVATE
     ${unity_SOURCE_DIR}/src
     ../include
     ./mocks
+    ./mocks/lwip
 )
 
 # --- Link Libraries ---

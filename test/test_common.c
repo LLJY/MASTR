@@ -2,6 +2,8 @@
 #include "mock_pico_sdk.h"
 #include "mock_crypto.h"
 #include "mock_time.h"
+#include "mock_wifi.h"
+#include "mock_lwip.h"
 #include "protocol.h"
 #include <string.h>
 
@@ -10,7 +12,9 @@ void setUp(void) {
     reset_mocks();
     mock_crypto_reset();
     mock_time_reset();
-    
+    mock_wifi_reset();
+    mock_lwip_reset();
+
     // Reset protocol state
     memset(&g_protocol_state, 0, sizeof(g_protocol_state));
     g_protocol_state.current_state = 0x20;  // Start at ECDH state
