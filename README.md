@@ -271,31 +271,14 @@ make -j$(nproc)
 
 **Debug Build:**
 ```bash
-cmake .. -DPICO_BOARD=pico2_w -DCMAKE_BUILD_TYPE=Debug
+cmake .. -DPICO_BOARD=pico2_w -DENABLE_DEBUG=ON
 make
 ```
 
-**Release Build (Optimized):**
+**Release Build** (disables printing and tightens security features)
 ```bash
-cmake .. -DPICO_BOARD=pico2_w -DCMAKE_BUILD_TYPE=Release
+cmake .. -DPICO_BOARD=pico2_w -DENABLE_DEBUG=OFF
 make
-```
-
-**Clean Build:**
-```bash
-# Remove build directory and start fresh
-cd ..
-rm -rf build
-mkdir build
-cd build
-cmake .. -DPICO_BOARD=pico2_w
-make
-```
-
-**Build Specific Targets:**
-```bash
-make mastr          # Build main firmware
-make test_runner    # Build unit tests
 ```
 
 ---
