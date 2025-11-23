@@ -222,6 +222,27 @@ bool crypto_read_wifi_password(char* password_out, size_t max_len);
  */
 bool crypto_clear_wifi_password(void);
 
+/**
+ * @brief Spawn the WiFi password background task (one-time initialization)
+ * Safe to call multiple times - only creates task on first call
+ */
+void crypto_spawn_wifi_password_task(void);
+
+/**
+ * @brief Queue a WiFi password write operation (non-blocking)
+ * @param password Null-terminated password string (max 31 chars)
+ * @return true if operation queued, false if busy or invalid
+ */
+bool crypto_queue_wifi_password_write(const char* password);
+
+/**
+ * @brief Get WiFi password write operation status (non-blocking)
+ * @param write_ready_out Pointer to receive write completion status
+ * @param write_failed_out Pointer to receive write failure status
+ * @return true if write completed successfully, false otherwise
+ */
+bool crypto_get_wifi_password_write_status(bool *write_ready_out, bool *write_failed_out);
+
 // Token permanent public key prefetch/cache API
 // Spawn background task (idempotent) to prefetch token permanent public key
 void crypto_spawn_pubkey_prefetch(void);

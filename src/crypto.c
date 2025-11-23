@@ -528,6 +528,87 @@ bool crypto_clear_wifi_password(void) {
     return (status == ATCA_SUCCESS);
 }
 
+// ============================================================================
+// Non-blocking WiFi Password Write API (Background Task Pattern)
+// ============================================================================
+
+#ifndef UNIT_TEST
+// Background task state for WiFi password writes
+static volatile bool g_wifi_password_write_pending = false;
+static volatile bool g_wifi_password_write_ready = false;
+static volatile bool g_wifi_password_write_failed = false;
+static char g_pending_wifi_password[32];
+
+// Background task for WiFi password writes (non-blocking)
+static void wifi_password_task(void *arg) {
+    (void)arg;
+
+    while (1) {
+        if (g_wifi_password_write_pending) {
+            g_wifi_password_write_pending = false;
+            g_wifi_password_write_ready = false;
+            g_wifi_password_write_failed = false;
+
+            // Write WiFi password (blocking operation safe in background task)
+            bool write_success = crypto_write_wifi_password(g_pending_wifi_password);
+            if (write_success) {
+                // Verify by reading back
+                char verify_password[32];
+                bool read_success = crypto_read_wifi_password(verify_password, sizeof(verify_password));
+                if (read_success && strcmp(g_pending_wifi_password, verify_password) == 0) {
+                    // Success
+                    g_wifi_password_write_ready = true;
+                } else {
+                    g_wifi_password_write_failed = true;
+                }
+            } else {
+                g_wifi_password_write_failed = true;
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+void crypto_spawn_wifi_password_task(void) {
+    static bool task_spawned = false;
+    if (!task_spawned) {
+        xTaskCreate(wifi_password_task, "wifi_pwd", 1024, NULL, 20, NULL);
+        task_spawned = true;
+    }
+}
+#else
+void crypto_spawn_wifi_password_task(void) {
+    // No-op in unit test mode
+}
+#endif
+
+// Non-blocking WiFi password write API
+bool crypto_queue_wifi_password_write(const char* password) {
+    if (!password || strlen(password) > 31) {
+        return false;
+    }
+
+    if (g_wifi_password_write_pending) {
+        return false;  // Already busy
+    }
+
+    // Copy password data and start write operation
+    strncpy(g_pending_wifi_password, password, sizeof(g_pending_wifi_password) - 1);
+    g_pending_wifi_password[sizeof(g_pending_wifi_password) - 1] = '\0';
+    g_wifi_password_write_pending = true;
+    g_wifi_password_write_ready = false;
+    g_wifi_password_write_failed = false;
+
+    return true;
+}
+
+bool crypto_get_wifi_password_write_status(bool *write_ready_out, bool *write_failed_out) {
+    if (write_ready_out) *write_ready_out = g_wifi_password_write_ready;
+    if (write_failed_out) *write_failed_out = g_wifi_password_write_failed;
+    return g_wifi_password_write_ready;
+}
+
 int crypto_hex_to_bytes(const char* hex_str, uint8_t* out_bytes, size_t max_bytes) {
     if (!hex_str || !out_bytes) return -1;
 

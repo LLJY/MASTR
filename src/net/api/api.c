@@ -48,57 +48,10 @@ static bool g_bearer_token_generated = false;
 
 // Token pubkey caching/prefetch handled by crypt.c now
 
-// Forward declarations
-static void claim_flash_timer_cb(TimerHandle_t timer);
-static void reset_timer_cb(TimerHandle_t timer);
+// Forward declarations (reset_timer_cb removed if not used)
 
-// Deferred ATECC write task for claim endpoint
-// AP rotation removed - device reboot will load new password from ATECC
-static void claim_flash_write_task(void *arg) {
-    (void)arg;
-
-    print_dbg("[API] Claim task: writing password to ATECC608A\n");
-    vTaskDelay(pdMS_TO_TICKS(10));
-
-    if (g_last_psk[0] != '\0' && g_claimed) {
-        if (!crypto_write_wifi_password(g_last_psk)) {
-            print_dbg("[API] ERROR: ATECC write failed\n");
-            vTaskDelay(pdMS_TO_TICKS(10));
-        } else {
-            print_dbg("[API] Password written to ATECC - reboot device to apply\n");
-            vTaskDelay(pdMS_TO_TICKS(10));
-        }
-    } else {
-        print_dbg("[API] Claim task: no password to write\n");
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-
-    vTaskDelete(NULL);
-}
-
-// Timer callback that creates the flash write task
-// Runs in timer daemon context (safe to call xTaskCreate)
-static void claim_flash_timer_cb(TimerHandle_t timer) {
-    print_dbg("[API] Timer fired, creating flash write task\n");
-    vTaskDelay(pdMS_TO_TICKS(10));
-
-    BaseType_t result = xTaskCreate(
-        claim_flash_write_task,
-        "ClaimFlash",
-        DEFAULT_STACK_SIZE,
-        NULL,
-        15,  // Medium priority
-        NULL
-    );
-
-    if (result != pdPASS) {
-        print_dbg("[API] ERROR: Failed to create flash write task from timer\n");
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-
-    // Delete the one-shot timer
-    xTimerDelete(timer, 0);
-}
+// NOTE: Removed timer+task pattern. Now using background task (crypto_spawn_wifi_password_task)
+// The write is queued via crypto_queue_wifi_password_write() directly from claim_handler
 
 // Generate a random WPA2 passphrase (length between 16 and 24) using get_rand_32()
 static void generate_random_psk(char *out, size_t out_len) {
@@ -175,16 +128,11 @@ bool http_validate_bearer_token(const char *request) {
 static void claim_handler(struct tcp_pcb *pcb, const char *request) {
     (void)request;
     print_dbg("[API] claim_handler called (claimed=%d)\n", g_claimed ? 1 : 0);
-    vTaskDelay(pdMS_TO_TICKS(30));
     
-    
-    vTaskDelay(pdMS_TO_TICKS(50));
-
     #ifdef DEBUG
     // In debug mode, allow re-claiming
     if (g_claimed) {
         print_dbg("[API] DEBUG: Allowing re-claim\n");
-        vTaskDelay(pdMS_TO_TICKS(10));
         g_claimed = false;
     }
     #endif
@@ -198,15 +146,7 @@ static void claim_handler(struct tcp_pcb *pcb, const char *request) {
     generate_random_psk(g_last_psk, sizeof(g_last_psk));
 
     g_claimed = true;
-
-    /* 
-    ok here me out, over here we kept running into issues (logical race condition) with getting this to work
-    when building with debug, it would succeed but building with prod it will fail
-    so we added a 10ms delay at every single print dbg statement
-    .... that fixed it.....
-    */
     print_dbg("[API] About to send JSON response\n");
-    vTaskDelay(pdMS_TO_TICKS(30));
 
     char body[160];
     int n = snprintf(body, sizeof(body),
@@ -215,34 +155,16 @@ static void claim_handler(struct tcp_pcb *pcb, const char *request) {
     (void)n;
 
     print_dbg("[API] Calling http_send_json\n");
-    vTaskDelay(pdMS_TO_TICKS(30));
     http_send_json(pcb, 200, body);
 
     print_dbg("[API] http_send_json returned\n");
-    vTaskDelay(pdMS_TO_TICKS(30));
 
-    // Use a FreeRTOS timer instead of creating task directly
-    // This avoids calling xTaskCreate() from lwIP context which causes deadlock
-    TimerHandle_t timer = xTimerCreate(
-        "ClaimFlash",
-        pdMS_TO_TICKS(2000),  // 2 second delay
-        pdFALSE,              // One-shot timer
-        NULL,
-        claim_flash_timer_cb  // Timer callback will create the task
-    );
-
-    if (timer != NULL) {
-        if (xTimerStart(timer, 0) == pdPASS) {
-            print_dbg("[API] Flash write scheduled via timer\n");
-            vTaskDelay(pdMS_TO_TICKS(30));
-        } else {
-            print_dbg("[API] ERROR: Failed to start timer\n");
-            vTaskDelay(pdMS_TO_TICKS(30));
-            xTimerDelete(timer, 0);
-        }
+    // Queue WiFi password write to background task (non-blocking)
+    // This uses the same pattern as golden_hash writes for reliability
+    if (crypto_queue_wifi_password_write(g_last_psk)) {
+        print_dbg("[API] WiFi password queued for ATECC write\n");
     } else {
-        print_dbg("[API] ERROR: Failed to create timer\n");
-        vTaskDelay(pdMS_TO_TICKS(30));
+        print_dbg("[API] ERROR: Failed to queue WiFi password (task busy or not spawned)\n");
     }
 }
 
@@ -852,6 +774,9 @@ void api_register_routes(void) {
     http_register("/api/ping", ping_handler);
     http_register("/api/health", health_handler);
 
+    // Always spawn WiFi password task (needed for claim endpoint in all states)
+    crypto_spawn_wifi_password_task();
+
     // STATE 1: No password and not claimed → Only claim endpoint (NO bearer token)
     if (!claimed_or_password_set) {
         http_register("/api/claim", claim_handler);  // NO AUTH
@@ -892,6 +817,7 @@ void api_register_routes(void) {
     crypto_spawn_pubkey_prefetch();
     crypto_spawn_host_pubkey_task();
     crypto_spawn_golden_hash_task();
+    // WiFi password task already spawned above (line 791) for all states
 
     // Expose token_info and reset in all builds (for university module)
     if (provisioned) {
