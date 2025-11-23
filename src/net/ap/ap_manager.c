@@ -36,7 +36,7 @@ int start_access_point(const char *ssid, const char *pass) {
     int auth_mode = CYW43_AUTH_WPA2_AES_PSK;
     if (pass == NULL || strlen(pass) < 8) {
         auth_mode = CYW43_AUTH_OPEN;
-        ap_pass = ""; // driver will treat this as open
+        ap_pass = "";
         print_dbg("WARNING: WiFi password too short, using open AP\n");
     }
 
@@ -46,7 +46,7 @@ int start_access_point(const char *ssid, const char *pass) {
 
     // Use non-blocking approach: wait briefly but yield to other tasks
     // This prevents blocking serial provisioning
-    int retries = 20; // up to ~2 seconds, but each retry yields
+    int retries = 20;
     while (retries-- > 0) {
         ap_ip4 = netif_ip4_addr(&cyw43_state.netif[CYW43_ITF_AP]);
         ap_nm4 = netif_ip4_netmask(&cyw43_state.netif[CYW43_ITF_AP]);
@@ -98,8 +98,6 @@ int reconfigure_access_point(const char *ssid, const char *pass) {
               (auth_mode == CYW43_AUTH_OPEN) ? "OPEN" : "WPA2-PSK");
     return 0;
 }
-
-
 
 /**
  * Get DHCP server instance for querying connected clients
