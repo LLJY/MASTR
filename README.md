@@ -211,7 +211,11 @@ The Pico W will automatically reboot and start running MASTR
 cd host/
 pip install -r requirements.txt
 
-# pytss may fail to install.
+# pytss may fail to install due to wheel building, please get your distrubution specific version.
+# Ubuntu
+sudo apt-get install python3-tpm2-pytss
+
+# you will also require build-essentials, tpm2-tools
 ```
 
 ### Step 5: Provision the System
