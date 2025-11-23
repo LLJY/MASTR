@@ -77,16 +77,16 @@ target_include_directories(run_tests PRIVATE
 target_sources(run_tests PRIVATE ${unity_SOURCE_DIR}/src/unity.c)
 
 # Link mbedtls for real cryptographic implementations
-find_package(MbedTLS REQUIRED)
+find_package(MbedTLS)
 if(MbedTLS_FOUND)
     target_link_libraries(run_tests PRIVATE
         MbedTLS::mbedcrypto
     )
-    message(STATUS "mbedTLS found - linking mbedcrypto library")
+    message(STATUS "mbedTLS found via find_package - linking mbedcrypto library")
 else()
-    # Fallback: Try linking directly if find_package fails
+    # Fallback: Try linking directly if find_package fails (common on Ubuntu/Debian)
     target_link_libraries(run_tests PRIVATE mbedcrypto)
-    message(STATUS "mbedTLS package not found - attempting direct library link")
+    message(STATUS "mbedTLS package not found - using direct library link (Ubuntu/Debian style)")
 endif()
 
 # --- Add a compile definition for test builds ---
