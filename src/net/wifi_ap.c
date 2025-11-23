@@ -27,8 +27,6 @@ static wifi_ap_config_t wifi_config = {
  * Actual CYW43 initialization happens in wifi_ap_init_task after FreeRTOS starts
  */
 bool wifi_ap_init(void) {
-    // TEMPORARY: Clear WiFi password on boot for testing
-    crypto_clear_wifi_password();
     print_dbg("TEMP: Cleared WiFi password from ATECC\n");
 
     // Try to load WiFi password from ATECC608A
