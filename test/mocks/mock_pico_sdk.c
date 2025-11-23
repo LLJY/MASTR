@@ -96,31 +96,28 @@ void tud_cdc_write_flush(void) {
     // Does nothing in mock.
 }
 
-// Mock crypto functions (for unit tests, encryption is passthrough)
-bool crypto_decrypt_frame_if_needed(
-    uint8_t* frame_buffer,
-    uint16_t frame_len,
-    uint8_t* decrypted_frame_out,
-    uint16_t* decrypted_len_out
-) {
-    // In unit tests, just copy the frame (no encryption)
-    memcpy(decrypted_frame_out, frame_buffer, frame_len);
-    *decrypted_len_out = frame_len;
-    return true;
+// FreeRTOS mock implementations
+BaseType_t xTaskCreate(TaskFunction_t pvTaskCode, const char *const pcName,
+                       uint16_t usStackDepth, void *pvParameters,
+                       uint32_t uxPriority, TaskHandle_t *pxCreatedTask) {
+    (void)pvTaskCode;
+    (void)pcName;
+    (void)usStackDepth;
+    (void)pvParameters;
+    (void)uxPriority;
+    (void)pxCreatedTask;
+    // In unit tests, tasks don't actually run
+    return 1; // pdPASS
 }
 
-bool crypto_encrypt_frame_if_needed(
-    uint8_t msg_type,
-    const uint8_t* frame,
-    uint16_t frame_len,
-    uint8_t* encrypted_frame_out,
-    uint16_t* encrypted_len_out
-) {
-    (void)msg_type;
-    // In unit tests, just copy the frame (no encryption)
-    memcpy(encrypted_frame_out, frame, frame_len);
-    *encrypted_len_out = frame_len;
-    return true;
+void vTaskDelay(TickType_t xTicksToDelay) {
+    (void)xTicksToDelay;
+    // In unit tests, delays are no-ops
+}
+
+void vTaskDelete(TaskHandle_t xTaskToDelete) {
+    (void)xTaskToDelete;
+    // In unit tests, task deletion is a no-op
 }
 
 // Mock debug print function
@@ -130,9 +127,16 @@ void print_dbg(const char *format, ...) {
 }
 
 // Mock random number generation
+// Uses Xorshift32 for better distribution across all bits
 uint32_t get_rand_32(void) {
-    static uint32_t counter = 0x12345678;
-    return counter++;
+    static uint32_t state = 0x12345678;
+
+    // Xorshift32 algorithm - good period and distribution
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+
+    return state;
 }
 
 // Mock delay function

@@ -24,13 +24,4 @@ uint64_t time_us_64(void) {
     return mock_current_time_us;
 }
 
-// Mock FreeRTOS delay (does nothing in tests, but advances time)
-void vTaskDelay(uint32_t ticks) {
-    // In tests, 1 tick = 1ms for simplicity
-    mock_current_time_us += (ticks * 1000);
-}
-
-// Mock FreeRTOS delay helper
-uint32_t pdMS_TO_TICKS(uint32_t ms) {
-    return ms;  // 1:1 mapping for tests
-}
+// NOTE: vTaskDelay is now in mock_pico_sdk.c to avoid duplicate definitions

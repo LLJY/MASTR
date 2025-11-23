@@ -3,6 +3,12 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
+
+// Mock ATCA types and constants
+typedef uint8_t ATCA_STATUS;
+#define ATCA_SUCCESS 0x00
+#define ATCA_ZONE_DATA 0x02
 
 // Mock ATECC608A state
 typedef struct {
@@ -40,5 +46,14 @@ void mock_crypto_set_integrity_result(bool should_pass);
 // Get computed values for verification
 void mock_crypto_get_ephemeral_pubkey(uint8_t* pubkey_out);
 void mock_crypto_get_shared_secret(uint8_t* secret_out);
+
+// Mock SHA256 function
+bool compute_sha256(const uint8_t* message, size_t message_len, uint8_t* hash_out);
+
+// Mock ATCA functions
+ATCA_STATUS atcab_read_zone(uint8_t zone, uint16_t slot, uint8_t block,
+                             uint8_t offset, uint8_t* data, uint8_t len);
+ATCA_STATUS atcab_write_zone(uint8_t zone, uint16_t slot, uint8_t block,
+                              uint8_t offset, const uint8_t* data, uint8_t len);
 
 #endif // MOCK_CRYPTO_H

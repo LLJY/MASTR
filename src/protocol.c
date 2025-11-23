@@ -13,6 +13,7 @@
 #else
 // Mock declarations for unit tests
 #include "mock_time.h"
+#include "mock_pico_sdk.h"
 #endif
 
 // Global protocol state

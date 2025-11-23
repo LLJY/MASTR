@@ -10,12 +10,18 @@
 #include "serial.h"
 
 
-struct route_entry { 
-    const char *path; 
+struct route_entry {
+    const char *path;
     http_handler_fn handler;
     bool requires_auth;  // Does this route require bearer token auth?
 };
+
+// Make internal state visible for unit tests
+#ifdef UNIT_TEST
+struct route_entry routes[MAX_ROUTES];
+#else
 static struct route_entry routes[MAX_ROUTES];
+#endif
 
 int http_register(const char *path, http_handler_fn handler) {
     return http_register_auth(path, handler, false);  // Public by default
@@ -36,9 +42,17 @@ int http_register_auth(const char *path, http_handler_fn handler, bool requires_
     return -1;
 }
 
+#ifdef UNIT_TEST
+http_state_t g_state;
+#else
 static http_state_t g_state;
+#endif
 
+#ifdef UNIT_TEST
+void reset_state(void) {
+#else
 static void reset_state(void) {
+#endif
     g_state.request_len = 0;
     g_state.request[0] = '\0';
     g_state.in_use = false;
@@ -154,13 +168,21 @@ static void http_err(void *arg, err_t err) {
     reset_state();
 }
 
+#ifdef UNIT_TEST
+err_t http_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
+#else
 static err_t http_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
+#endif
     (void)arg; (void)len;
     if (g_state.close_when_sent) return http_close(pcb);
     return ERR_OK;
 }
 
+#ifdef UNIT_TEST
+err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) {
+#else
 static err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) {
+#endif
     (void)arg; (void)err;
     if (!p) return http_close(pcb);
     if (p->tot_len > 0) {
@@ -181,7 +203,11 @@ static err_t http_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err
     return ERR_OK;
 }
 
+#ifdef UNIT_TEST
+err_t http_accept(void *arg, struct tcp_pcb *client_pcb, err_t err) {
+#else
 static err_t http_accept(void *arg, struct tcp_pcb *client_pcb, err_t err) {
+#endif
     (void)arg; (void)err;
     if (g_state.in_use) {
         tcp_close(client_pcb);

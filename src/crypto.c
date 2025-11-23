@@ -6,7 +6,16 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
+
+// Always include mbedtls (software crypto runs in both production and tests)
+#include "mbedtls/sha256.h"
+#include "mbedtls/gcm.h"
+#include "mbedtls/hkdf.h"
+#include "mbedtls/md.h"
+
 #ifndef UNIT_TEST
+// Production: Include hardware and RTOS headers
 #include "FreeRTOS.h"
 #include "task.h"
 #include "pico/stdlib.h"
@@ -14,11 +23,11 @@
 #ifdef LIB_PICO_SHA256
 #include "pico/sha256.h"
 #endif
-#include "mbedtls/sha256.h"
-#include "mbedtls/gcm.h"
-#include "mbedtls/hkdf.h"
-#include "mbedtls/md.h"
 #include "cryptoauthlib.h"
+#else
+// Unit test: Include mock headers for hardware abstraction
+#include "mock_atca.h"
+#include "mock_pico_sdk.h"
 #endif
 
 bool crypto_init(void) {
@@ -87,19 +96,17 @@ bool crypto_token_pubkey_failed(void) { return g_token_pubkey_failed; }
  * Uses Pico's hardware random number generator for cryptographically secure IVs.
  */
 static void generate_iv(uint8_t* const iv_out) {
-#ifndef UNIT_TEST
     // Use Pico hardware RNG for cryptographically secure random IV
+    // In unit tests, uses mock RNG that returns unique sequential values
     for (int i = 0; i < GCM_IV_SIZE; i++) {
         iv_out[i] = (uint8_t)get_rand_32();
     }
-#else
-    memset(iv_out, 0xAA, GCM_IV_SIZE);
-#endif
 }
 
 /**
  * Computes SHA256 hash of message.
  * Uses hardware acceleration on RP2350, software on RP2040.
+ * In unit tests, always uses mbedtls software implementation.
  *
  * Set FORCE_SOFTWARE_SHA256=1 to test software SHA256 on RP2350.
  *
@@ -108,8 +115,7 @@ static void generate_iv(uint8_t* const iv_out) {
  * @param hash_out Output buffer for 32-byte hash
  */
 static void compute_sha256(const uint8_t* message, size_t message_len, uint8_t* hash_out) {
-#ifndef UNIT_TEST
-#if defined(LIB_PICO_SHA256) && !defined(FORCE_SOFTWARE_SHA256)
+#if !defined(UNIT_TEST) && defined(LIB_PICO_SHA256) && !defined(FORCE_SOFTWARE_SHA256)
     // RP2350: Use hardware SHA256 for maximum speed
     pico_sha256_state_t state;
     sha256_result_t result;
@@ -118,17 +124,13 @@ static void compute_sha256(const uint8_t* message, size_t message_len, uint8_t* 
     pico_sha256_finish(&state, &result);
     memcpy(hash_out, result.bytes, 32);
 #else
-    // RP2040 or FORCE_SOFTWARE_SHA256: Use mbedtls software SHA256
+    // UNIT_TEST, RP2040, or FORCE_SOFTWARE_SHA256: Use mbedtls software SHA256
     mbedtls_sha256_context ctx;
     mbedtls_sha256_init(&ctx);
     mbedtls_sha256_starts(&ctx, 0);  // 0 = SHA256 (not SHA224)
     mbedtls_sha256_update(&ctx, message, message_len);
     mbedtls_sha256_finish(&ctx, hash_out);
     mbedtls_sha256_free(&ctx);
-#endif
-#else
-    (void)message; (void)message_len;
-    memset(hash_out, 0, 32);
 #endif
 }
 
@@ -146,7 +148,6 @@ bool crypto_aes_gcm_encrypt(
     uint8_t* restrict ciphertext_out,
     uint16_t* restrict ciphertext_len_out
 ) {
-#ifndef UNIT_TEST
     mbedtls_gcm_context gcm;
     mbedtls_gcm_init(&gcm);
 
@@ -187,11 +188,6 @@ bool crypto_aes_gcm_encrypt(
     *ciphertext_len_out = GCM_IV_SIZE + plaintext_len + GCM_TAG_SIZE;
 
     return true;
-#else
-    (void)plaintext; (void)plaintext_len; (void)key;
-    (void)ciphertext_out; (void)ciphertext_len_out;
-    return false;
-#endif
 }
 
 /**
@@ -208,7 +204,6 @@ bool crypto_aes_gcm_decrypt(
     uint8_t* restrict plaintext_out,
     uint16_t* restrict plaintext_len_out
 ) {
-#ifndef UNIT_TEST
     if (ciphertext_len < ENCRYPTION_OVERHEAD) {
         return false;
     }
@@ -249,11 +244,6 @@ bool crypto_aes_gcm_decrypt(
     *plaintext_len_out = encrypted_len;
 
     return true;
-#else
-    (void)ciphertext; (void)ciphertext_len; (void)key;
-    (void)plaintext_out; (void)plaintext_len_out;
-    return false;
-#endif
 }
 
 /**
@@ -330,8 +320,6 @@ bool crypto_encrypt_frame_if_needed(
  * @return true if derivation succeeded, false otherwise
  */
 bool crypto_derive_session_key(const uint8_t* shared_secret, uint8_t* session_key_out) {
-#ifndef UNIT_TEST
-
     const uint8_t salt[] = "MASTR-Session-Key-v1"; // Application-specific salt
     const uint8_t info[] = "";  // Optional context/info (empty for now)
 
@@ -354,10 +342,6 @@ bool crypto_derive_session_key(const uint8_t* shared_secret, uint8_t* session_ke
     }
 
     return true;
-#else
-    (void)shared_secret; (void)session_key_out;
-    return false;
-#endif
 }
 
 /**
@@ -368,7 +352,6 @@ bool crypto_derive_session_key(const uint8_t* shared_secret, uint8_t* session_ke
  * @return true if generation succeeded, false otherwise
  */
 bool crypto_ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out) {
-#ifndef UNIT_TEST
     ATCA_STATUS status = atcab_genkey(ATCA_TEMPKEY_KEYID, ephemeral_pubkey_out);
 
     if (status != ATCA_SUCCESS) {
@@ -376,10 +359,6 @@ bool crypto_ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out) {
     }
 
     return true;
-#else
-    (void)ephemeral_pubkey_out;
-    return false;
-#endif
 }
 
 /**
@@ -393,7 +372,6 @@ bool crypto_ecdh_generate_ephemeral_key(uint8_t* ephemeral_pubkey_out) {
  */
 bool crypto_ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_len,
                                    uint8_t* signature_out) {
-#ifndef UNIT_TEST
     uint8_t hash[32];
     if (message_len == 32) {
         memcpy(hash, message, 32);
@@ -409,10 +387,6 @@ bool crypto_ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_
     }
 
     return true;
-#else
-    (void)message; (void)message_len; (void)signature_out;
-    return false;
-#endif
 }
 
 /**
@@ -423,7 +397,6 @@ bool crypto_ecdh_sign_with_permanent_key(const uint8_t* message, size_t message_
  * @return true if read succeeded, false otherwise
  */
 bool crypto_ecdh_read_host_pubkey(uint8_t* host_pubkey_out) {
-#ifndef UNIT_TEST
     for (int block = 0; block < 2; block++) {
         ATCA_STATUS status = atcab_read_zone(
             ATCA_ZONE_DATA,
@@ -441,10 +414,6 @@ bool crypto_ecdh_read_host_pubkey(uint8_t* host_pubkey_out) {
     }
 
     return true;
-#else
-    (void)host_pubkey_out;
-    return false;
-#endif
 }
 
 /**
@@ -453,7 +422,6 @@ bool crypto_ecdh_read_host_pubkey(uint8_t* host_pubkey_out) {
  * where the golden hash resides.
  */
 bool crypto_set_host_pubkey(const uint8_t* host_pubkey) {
-#ifndef UNIT_TEST
     if (!host_pubkey) return false;
     // Write two blocks of 32 bytes
     for (int block = 0; block < 2; block++) {
@@ -470,9 +438,6 @@ bool crypto_set_host_pubkey(const uint8_t* host_pubkey) {
         }
     }
     return true;
-#else
-    (void)host_pubkey; return false;
-#endif
 }
 
 int crypto_hex_to_bytes(const char* hex_str, uint8_t* out_bytes, size_t max_bytes) {
@@ -521,7 +486,6 @@ bool crypto_set_host_pubkey_hex(const char* hex_pubkey) {
  */
 bool crypto_ecdh_verify_signature(const uint8_t* message, size_t message_len,
                            const uint8_t* signature, const uint8_t* host_pubkey) {
-#ifndef UNIT_TEST
     uint8_t hash[32];
     if (message_len == 32) {
         memcpy(hash, message, 32);
@@ -541,10 +505,6 @@ bool crypto_ecdh_verify_signature(const uint8_t* message, size_t message_len,
     }
 
     return true;
-#else
-    (void)message; (void)message_len; (void)signature; (void)host_pubkey;
-    return false;
-#endif
 }
 
 /**
@@ -555,7 +515,6 @@ bool crypto_ecdh_verify_signature(const uint8_t* message, size_t message_len,
  * */
 bool crypto_ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
                                 uint8_t* shared_secret_out) {
-#ifndef UNIT_TEST
     ATCA_STATUS status = atcab_ecdh_tempkey(
         peer_ephemeral_pubkey,
         shared_secret_out
@@ -566,10 +525,6 @@ bool crypto_ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
     }
 
     return true;
-#else
-    (void)peer_ephemeral_pubkey; (void)shared_secret_out;
-    return false;
-#endif
 }
 
 /**
@@ -579,7 +534,6 @@ bool crypto_ecdh_compute_shared_secret(const uint8_t* peer_ephemeral_pubkey,
  * @return true if read succeeded, false otherwise
  */
 bool crypto_ecdh_read_token_pubkey(uint8_t* token_pubkey_out) {
-#ifndef UNIT_TEST
     ATCA_STATUS status = atcab_get_pubkey(SLOT_PERMANENT_PRIVKEY, token_pubkey_out);
 
     if (status != ATCA_SUCCESS) {
@@ -587,10 +541,6 @@ bool crypto_ecdh_read_token_pubkey(uint8_t* token_pubkey_out) {
     }
 
     return true;
-#else
-    (void)token_pubkey_out;
-    return false;
-#endif
 }
 
 /**
@@ -607,7 +557,6 @@ bool crypto_ecdh_read_token_pubkey(uint8_t* token_pubkey_out) {
  */
 bool crypto_verify_integrity_challenge(const uint8_t* p_hash, uint32_t nonce,
                            const uint8_t* p_signature, const uint8_t* p_host_pubkey, bool *p_result){
-#ifndef UNIT_TEST
     // Create buffer to concatenate hash (32 bytes) + nonce (4 bytes) = 36 bytes
     uint8_t message[36];
 
@@ -631,10 +580,6 @@ bool crypto_verify_integrity_challenge(const uint8_t* p_hash, uint32_t nonce,
     }
 
     return true;
-#else
-    (void)hash; (void)nonce; (void)signature; (void)host_pubkey; (void)result;
-    return false;
-#endif
 }
 
 /**

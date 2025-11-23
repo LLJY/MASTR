@@ -1,15 +1,21 @@
 #include "ap_manager.h"
 
-#include "pico/stdlib.h"
-#include "pico/cyw43_arch.h"
 #include <string.h>
-#include "lwip/ip4_addr.h"
 #include "dhcpserver.h"
 #include "http_server.h"
 #include "api.h"
+#include "serial.h"
+
+#ifndef UNIT_TEST
+#include "pico/stdlib.h"
+#include "pico/cyw43_arch.h"
+#include "lwip/ip4_addr.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "serial.h"
+#else
+#include "mock_wifi.h"
+#include "mock_pico_sdk.h"
+#endif
 
 static dhcp_server_t g_dhcp;
 

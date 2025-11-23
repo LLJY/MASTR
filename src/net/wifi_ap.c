@@ -7,6 +7,8 @@
 #ifndef UNIT_TEST
 #include "FreeRTOS.h"
 #include "task.h"
+#else
+#include "mock_pico_sdk.h"
 #endif
 
 // Persistent password storage so runtime password rotations remain valid.
@@ -51,7 +53,6 @@ bool wifi_ap_start(const wifi_ap_config_t *config) {
     wifi_config.ip_address = config->ip_address;
     wifi_config.is_running = false;
 
-    #ifndef UNIT_TEST
     if (start_access_point(wifi_config.ssid, wifi_config.password) != 0) {
         print_dbg("ERROR: Failed to start WiFi AP\n");
         return false;
@@ -59,7 +60,6 @@ bool wifi_ap_start(const wifi_ap_config_t *config) {
 
     wifi_config.is_running = true;
     print_dbg("WiFi AP started: SSID=%s (192.168.4.1)\n", wifi_config.ssid);
-    #endif
 
     return true;
 }
@@ -68,11 +68,9 @@ bool wifi_ap_start(const wifi_ap_config_t *config) {
  * Stop WiFi AP
  */
 void wifi_ap_stop(void) {
-    #ifndef UNIT_TEST
     stop_access_point();
     wifi_config.is_running = false;
     print_dbg("WiFi AP stopped\n");
-    #endif
 }
 
 /**
