@@ -63,18 +63,18 @@
 #define PORT_DHCP_SERVER (67)
 #define PORT_DHCP_CLIENT (68)
 
-#define DEFAULT_LEASE_TIME_S (24 * 60 * 60) // in seconds
+#define DEFAULT_LEASE_TIME_S (24 * 60 * 60)
 
 #define MAC_LEN (6)
 #define MAKE_IP4(a, b, c, d) ((a) << 24 | (b) << 16 | (c) << 8 | (d))
 
 typedef struct {
-    uint8_t op; // message opcode
-    uint8_t htype; // hardware address type
-    uint8_t hlen; // hardware address length
+    uint8_t op;        // message opcode
+    uint8_t htype;     // hardware address type
+    uint8_t hlen;      // hardware address length
     uint8_t hops;
-    uint32_t xid; // transaction id, chosen by client
-    uint16_t secs; // client seconds elapsed
+    uint32_t xid;      // transaction id, chosen by client
+    uint16_t secs;     // client seconds elapsed
     uint16_t flags;
     uint8_t ciaddr[4]; // client IP address
     uint8_t yiaddr[4]; // your IP address
@@ -86,10 +86,8 @@ typedef struct {
     uint8_t options[312]; // optional parameters, variable, starts with magic
 } dhcp_msg_t;
 
-// Convert lwIP ip_addr_t to 4 bytes in dotted order (a.b.c.d) into buf[0..3].
-// Use the ip4_addrX() helpers to avoid endianness issues (ip4_addr_get_u32
-// can be in host byte order on little-endian platforms). Using the helpers
-// guarantees we extract the octets in the correct network (dotted) order.
+/* Convert an lwIP IPv4 address to 4 octets (network/dotted order) 
+using ip4_addrX() to avoid endianness/host-order issues. */
 static void ipaddr_to_bytes(const ip_addr_t *a, uint8_t *buf) {
     const ip4_addr_t *ip4 = ip_2_ip4((ip_addr_t *)a);
     buf[0] = ip4_addr1(ip4);
@@ -110,7 +108,7 @@ static int dhcp_socket_new_dgram(struct udp_pcb **udp, void *cb_data, udp_recv_f
     // Register callback
     udp_recv(*udp, cb_udp_recv, (void *)cb_data);
 
-    return 0; // success
+    return 0;
 }
 
 static void dhcp_socket_free(struct udp_pcb **udp) {
@@ -121,7 +119,6 @@ static void dhcp_socket_free(struct udp_pcb **udp) {
 }
 
 static int dhcp_socket_bind(struct udp_pcb **udp, uint16_t port) {
-    // TODO convert lwIP errors to errno
     return udp_bind(*udp, IP_ANY_TYPE, port);
 }
 
@@ -220,7 +217,6 @@ static void dhcp_server_process(void *arg, struct udp_pcb *upcb, struct pbuf *p,
 
     uint8_t *msgtype = opt_find(opt, DHCP_OPT_MSG_TYPE);
     if (msgtype == NULL) {
-        // A DHCP package without MSG_TYPE?
         goto ignore_request;
     }
 
@@ -299,9 +295,9 @@ static void dhcp_server_process(void *arg, struct udp_pcb *upcb, struct pbuf *p,
     ipaddr_to_bytes(&d->nm, tmp_ip);
     opt_write_n(&opt, DHCP_OPT_SUBNET_MASK, 4, tmp_ip);
     ipaddr_to_bytes(&d->ip, tmp_ip);
-    opt_write_n(&opt, DHCP_OPT_ROUTER, 4, tmp_ip); // aka gateway; can have multiple addresses
+    opt_write_n(&opt, DHCP_OPT_ROUTER, 4, tmp_ip); 
     ipaddr_to_bytes(&d->ip, tmp_ip);
-    opt_write_n(&opt, DHCP_OPT_DNS, 4, tmp_ip); // this server is the dns
+    opt_write_n(&opt, DHCP_OPT_DNS, 4, tmp_ip); 
     opt_write_u32(&opt, DHCP_OPT_IP_LEASE_TIME, DEFAULT_LEASE_TIME_S);
     *opt++ = DHCP_OPT_END;
     struct netif *nif = ip_current_input_netif();
