@@ -440,6 +440,192 @@ bool crypto_set_host_pubkey(const uint8_t* host_pubkey) {
     return true;
 }
 
+/**
+ * Writes WiFi password to ATECC608A Slot 8 Block 3 (32 bytes)
+ * Password is null-terminated, max 31 chars. Remainder is zero-padded.
+ */
+bool crypto_write_wifi_password(const char* password) {
+    if (!password) return false;
+
+    uint8_t block_data[32];
+    memset(block_data, 0, 32);
+
+    // Copy password (max 31 bytes to leave room for null terminator)
+    size_t len = strlen(password);
+    if (len > 31) len = 31;
+
+    memcpy(block_data, password, len);
+    block_data[len] = '\0';  // Ensure null termination
+
+    // Write to Slot 8, Block 3
+    ATCA_STATUS status = atcab_write_zone(
+        ATCA_ZONE_DATA,
+        SLOT_HOST_PUBKEY,  // Slot 8
+        3,                 // Block 3
+        0,                 // Offset
+        block_data,
+        32
+    );
+
+    return (status == ATCA_SUCCESS);
+}
+
+/**
+ * Reads WiFi password from ATECC608A Slot 8 Block 3 (32 bytes)
+ * Returns true if password exists (non-empty), false otherwise
+ */
+bool crypto_read_wifi_password(char* password_out, size_t max_len) {
+    if (!password_out || max_len == 0) return false;
+
+    uint8_t block_data[32];
+
+    // Read from Slot 8, Block 3
+    ATCA_STATUS status = atcab_read_zone(
+        ATCA_ZONE_DATA,
+        SLOT_HOST_PUBKEY,  // Slot 8
+        3,                 // Block 3
+        0,                 // Offset
+        block_data,
+        32
+    );
+
+    if (status != ATCA_SUCCESS) {
+        return false;
+    }
+
+    // Check if password exists (first byte non-zero)
+    if (block_data[0] == 0) {
+        return false;  // No password set
+    }
+
+    // Ensure null termination within the block
+    block_data[31] = '\0';
+
+    // Copy to output
+    strncpy(password_out, (char*)block_data, max_len - 1);
+    password_out[max_len - 1] = '\0';
+
+    return true;
+}
+
+/**
+ * Clears WiFi password from ATECC608A Slot 8 Block 3
+ */
+bool crypto_clear_wifi_password(void) {
+    uint8_t zeros[32];
+    memset(zeros, 0, 32);
+
+    // Write zeros to Slot 8, Block 3
+    ATCA_STATUS status = atcab_write_zone(
+        ATCA_ZONE_DATA,
+        SLOT_HOST_PUBKEY,  // Slot 8
+        3,                 // Block 3
+        0,                 // Offset
+        zeros,
+        32
+    );
+
+    return (status == ATCA_SUCCESS);
+}
+
+// ============================================================================
+// Non-blocking WiFi Password Write API (Background Task Pattern)
+// ============================================================================
+
+#ifndef UNIT_TEST
+// Background task state for WiFi password writes
+static volatile bool g_wifi_password_write_pending = false;
+static volatile bool g_wifi_password_write_ready = false;
+static volatile bool g_wifi_password_write_failed = false;
+static char g_pending_wifi_password[32];
+
+// Background task for WiFi password writes (non-blocking)
+static void wifi_password_task(void *arg) {
+    (void)arg;
+
+    while (1) {
+        if (g_wifi_password_write_pending) {
+            g_wifi_password_write_pending = false;
+            g_wifi_password_write_ready = false;
+            g_wifi_password_write_failed = false;
+
+            // Write WiFi password (blocking operation safe in background task)
+            bool write_success = crypto_write_wifi_password(g_pending_wifi_password);
+            if (write_success) {
+                // Verify by reading back
+                char verify_password[32];
+                bool read_success = crypto_read_wifi_password(verify_password, sizeof(verify_password));
+                if (read_success && strcmp(g_pending_wifi_password, verify_password) == 0) {
+                    // Success
+                    g_wifi_password_write_ready = true;
+                } else {
+                    g_wifi_password_write_failed = true;
+                }
+            } else {
+                g_wifi_password_write_failed = true;
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+void crypto_spawn_wifi_password_task(void) {
+    static bool task_spawned = false;
+    if (!task_spawned) {
+        xTaskCreate(wifi_password_task, "wifi_pwd", 1024, NULL, 20, NULL);
+        task_spawned = true;
+    }
+}
+
+// Non-blocking WiFi password write API
+bool crypto_queue_wifi_password_write(const char* password) {
+    if (!password || strlen(password) > 31) {
+        return false;
+    }
+
+    if (g_wifi_password_write_pending) {
+        return false;  // Already busy
+    }
+
+    // Copy password data and start write operation
+    strncpy(g_pending_wifi_password, password, sizeof(g_pending_wifi_password) - 1);
+    g_pending_wifi_password[sizeof(g_pending_wifi_password) - 1] = '\0';
+    g_wifi_password_write_pending = true;
+    g_wifi_password_write_ready = false;
+    g_wifi_password_write_failed = false;
+
+    return true;
+}
+
+bool crypto_get_wifi_password_write_status(bool *write_ready_out, bool *write_failed_out) {
+    if (write_ready_out) *write_ready_out = g_wifi_password_write_ready;
+    if (write_failed_out) *write_failed_out = g_wifi_password_write_failed;
+    return g_wifi_password_write_ready;
+}
+
+#else
+// UNIT_TEST mode - stub implementations
+void crypto_spawn_wifi_password_task(void) {
+    // No-op in unit test mode
+}
+
+bool crypto_queue_wifi_password_write(const char* password) {
+    // Test stub - just validate and return success
+    if (!password || strlen(password) > 31) {
+        return false;
+    }
+    return true;
+}
+
+bool crypto_get_wifi_password_write_status(bool *write_ready_out, bool *write_failed_out) {
+    // Test stub - always report ready
+    if (write_ready_out) *write_ready_out = true;
+    if (write_failed_out) *write_failed_out = false;
+    return true;
+}
+#endif
+
 int crypto_hex_to_bytes(const char* hex_str, uint8_t* out_bytes, size_t max_bytes) {
     if (!hex_str || !out_bytes) return -1;
 

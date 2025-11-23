@@ -4,6 +4,8 @@
 #include "pico/binary_info.h"
 #include "pico/time.h"
 #include "hardware/i2c.h"
+#include "hardware/gpio.h"
+#include "hardware/sync.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "cryptoauthlib.h"
@@ -14,6 +16,7 @@
 #include "wifi_ap.h"
 #include "http_server.h"
 #include "cpu_monitor.h"
+#include "flash_config.h"
 
 // Add binary info
 bi_decl(bi_program_name("MASTR"));
@@ -40,6 +43,45 @@ void print_board_info() {
     print_dbg("WiFi support: Enabled\n");
 #else
     print_dbg("WiFi support: Disabled\n");
+#endif
+}
+
+/**
+ * Check if factory reset jumper is active during boot
+ *
+ * Uses GPIO pin (default GP0) with internal pull-up.
+ * Short to ground during boot to clear WiFi password.
+ *
+ * @return true if reset jumper is active, false otherwise
+ */
+bool check_factory_reset_jumper(void) {
+#ifdef DEBUG
+    // Use GPIO 15 as factory reset pin (GP0/GP1/GP2 are used by I2C/peripherals)
+    // Short GP15 to GND during boot to reset WiFi password
+    const uint RESET_PIN = 15;
+
+    // Configure GPIO for input with pull-up (active-low)
+    gpio_init(RESET_PIN);
+    gpio_set_dir(RESET_PIN, GPIO_IN);
+    gpio_pull_up(RESET_PIN);
+
+    // Small delay to let pull-up stabilize
+    busy_wait_us(100);
+
+    // Read the pin (active-low: jumpered = 0, open = 1)
+    bool jumpered = !gpio_get(RESET_PIN);
+
+    // Leave GPIO configured as input with pull-up (safe state)
+    // Don't deinit so pin stays in known state
+
+    if (jumpered) {
+        print_dbg("[BOOT] Factory reset jumper detected on GP%d\n", RESET_PIN);
+    }
+
+    return jumpered;
+#else
+    // In production builds, don't support factory reset jumper
+    return false;
 #endif
 }
 
@@ -190,6 +232,18 @@ void app_init_task(void *params) {
         print_dbg("protocol is unprovisioned, disabling serial.\n");
         g_protocol_state.current_state = PROTOCOL_STATE_UNPROVISIONED;
     }
+
+    // --- Check for factory reset jumper to reset WiFi password ---
+#ifdef DEBUG
+    if (check_factory_reset_jumper()) {
+        print_dbg("[BOOT] Clearing WiFi password due to factory reset jumper...\n");
+        if (flash_clear_wifi_password()) {
+            print_dbg("[BOOT] WiFi password cleared successfully - AP will start in OPEN mode\n");
+        } else {
+            print_dbg("[BOOT] ERROR: Failed to clear WiFi password\n");
+        }
+    }
+#endif
 
     // --- WiFi initialization is also moved here ---
     if (!wifi_ap_init()) {
