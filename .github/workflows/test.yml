@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-arm-none-eabi
+          sudo apt-get install -y gcc-arm-none-eabi libmbedtls-dev lcov
 
       - name: Set up Pico SDK
         run: |
@@ -33,10 +33,26 @@ jobs:
         run: |
           mkdir build
           cd build
-          cmake ../test
+          cmake ../test -DENABLE_COVERAGE=ON
           make
 
       - name: Run tests
         run: |
           cd build
           ctest --verbose
+
+      - name: Generate coverage report
+        run: |
+          cd build
+          make coverage
+
+      - name: Display coverage summary
+        run: |
+          echo "=== Coverage Summary ==="
+          lcov --summary build/coverage_filtered.info | grep -E "(lines|functions)"
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: build/coverage_html/
