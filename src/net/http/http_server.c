@@ -1,6 +1,3 @@
-// Rebuilt HTTP server file: cleaned duplicates, minimal single-connection server
-// with deferred close via tcp_sent to reduce intermittent curl failures.
-
 #include "http_server.h"
 #include "lwip/pbuf.h"
 #include "lwip/tcp.h"
@@ -13,7 +10,7 @@
 struct route_entry {
     const char *path;
     http_handler_fn handler;
-    bool requires_auth;  // Does this route require bearer token auth?
+    bool requires_auth; 
 };
 
 // Make internal state visible for unit tests
@@ -24,7 +21,7 @@ static struct route_entry routes[MAX_ROUTES];
 #endif
 
 int http_register(const char *path, http_handler_fn handler) {
-    return http_register_auth(path, handler, false);  // Public by default
+    return http_register_auth(path, handler, false); 
 }
 
 int http_register_auth(const char *path, http_handler_fn handler, bool requires_auth) {
@@ -58,7 +55,6 @@ static void reset_state(void) {
     g_state.in_use = false;
     g_state.close_when_sent = false;
     
-    // Track connection closing
     http_connection_closed();
 }
 
@@ -145,11 +141,7 @@ static err_t http_close(struct tcp_pcb *pcb) {
     tcp_recv(pcb, NULL);
     tcp_sent(pcb, NULL);
     tcp_err(pcb, NULL);
-
-    // Try to close the connection
     err_t close_err = tcp_close(pcb);
-
-    // Only reset state if close succeeded OR if we need to abort
     if (close_err == ERR_OK) {
         reset_state();
         return ERR_OK;

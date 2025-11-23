@@ -17,8 +17,8 @@
 static char wifi_pass_storage[65] = ""; // will be filled on claim
 static wifi_ap_config_t wifi_config = {
     .ssid = "MASTR-Token",
-    .password = wifi_pass_storage,        // pointer always kept to storage
-    .ip_address = 0xC0A80401,  // 192.168.4.1
+    .password = wifi_pass_storage,      // pointer always kept to storage
+    .ip_address = 0xC0A80401,           // 192.168.4.1
     .is_running = false
 };
 
@@ -50,7 +50,7 @@ bool wifi_ap_start(const wifi_ap_config_t *config) {
         return false;
     }
     // Copy fundamental fields but deep-copy password text into persistent storage.
-    wifi_config.ssid = config->ssid; // assume lifetime static/const or managed by caller
+    wifi_config.ssid = config->ssid;
     if (config->password) {
         size_t len = strlen(config->password);
         if (len >= sizeof(wifi_pass_storage)) len = sizeof(wifi_pass_storage) - 1;
@@ -160,7 +160,7 @@ void http_server_task(void *params) {
     // Only run if AP is configured
     if (!wifi_config.is_running) {
         print_dbg("HTTP server: AP not running, task exiting\n");
-        vTaskDelete(NULL);  // Delete self
+        vTaskDelete(NULL);
         return;
     }
     
