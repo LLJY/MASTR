@@ -27,7 +27,7 @@ class MessageType(IntEnum):
     # Phase 1: Mutual Attestation & Secure Channel Establishment
     H2T_ECDH_SHARE = 0x20
     T2H_ECDH_SHARE = 0x21
-    T2H_CHANNEL_VERIFY_REQUEST = 0x22  # Token sends encrypted challenge to Host
+    T2H_CHANNEL_VERIFY_REQUEST = 0x22   # Token sends encrypted challenge to Host
     H2T_CHANNEL_VERIFY_RESPONSE = 0x23  # Host sends encrypted response to Token
     
     # Phase 2: (ENCRYPTED OR SIGNED REQUESTS) - Integrity Verification & Runtime Guard

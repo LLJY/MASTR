@@ -25,7 +25,7 @@ class CryptoInterface(ABC):
     def __init__(self) -> None:
         """Initialize crypto implementation"""
         self.session_key: Optional[bytes] = None
-        self._should_encrypt: bool = False  # Controlled externally by protocol state
+        self._should_encrypt: bool = False
     
     # ========================================================================
     # Key Management

@@ -96,7 +96,7 @@ class NaiveCrypto(CryptoInterface):
                 encoding=serialization.Encoding.X962,
                 format=serialization.PublicFormat.UncompressedPoint
             )
-            pubkey_raw = pubkey_bytes[1:]  # Remove 0x04 prefix
+            pubkey_raw = pubkey_bytes[1:]
             
             with open(HOST_PUBKEY_FILE, 'wb') as f:
                 f.write(pubkey_raw)
@@ -141,7 +141,7 @@ class NaiveCrypto(CryptoInterface):
             encoding=serialization.Encoding.X962,
             format=serialization.PublicFormat.UncompressedPoint
         )
-        pubkey_raw = pubkey_bytes[1:]  # Remove 0x04 prefix
+        pubkey_raw = pubkey_bytes[1:]
         
         return (pubkey_raw, privkey)
     

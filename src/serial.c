@@ -10,7 +10,6 @@
 #include "protocol.h"
 #include "crypto.h"
 
-// pico library headers
 // DO NOT INCLUDE THESE DURING UNIT TESTING.
 #ifndef UNIT_TEST
 #include "pico/binary_info.h"
@@ -38,7 +37,7 @@ static TaskHandle_t serial_task_handle = NULL;
 #endif
 
 // Frame processing state
-static uint8_t g_frame_buffer[MAX_PAYLOAD_SIZE + 4]; // 4 is the size of the frame metadata
+static uint8_t g_frame_buffer[MAX_PAYLOAD_SIZE + 4];
 static uint16_t g_frame_len = 0;
 static bool g_in_frame = false;
 static bool g_in_escape = false;
@@ -47,15 +46,14 @@ static bool g_in_escape = false;
 void print_dbg(const char *format, ...);
 
 #ifndef UNIT_TEST
-// USB CDC RX callback - called from interrupt context
+// USB CDC RX callback
 __attribute__((hot, flatten))
 void tud_cdc_rx_cb(uint8_t itf) {
     (void)itf;
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     
     // Directly notify the serial task (faster and more efficient than semaphore)
-    // 
-    // don't even send or recieve anything if protocol state is unprovisioned (0x10) or halt (0xFF)
+
     if (likely(serial_task_handle != NULL &&
                g_protocol_state.current_state != PROTOCOL_STATE_UNPROVISIONED &&
                g_protocol_state.current_state != 0xFF)) {
@@ -72,7 +70,7 @@ void serial_init(TaskHandle_t task_handle) {
         return;
     }
     
-    // set proper irq priority for FreeRTOS (i like to be specific, since we have to set it for RP2350)
+    // Proper irq priority for FreeRTOS
     // Must be >= configMAX_SYSCALL_INTERRUPT_PRIORITY to call vTaskNotifyGiveFromISR
     //   RP2040: 0x40 + 0x20 = 0x60 (safe, middle priority)
     //   RP2350: 0x50 + 0x20 = 0x70 (safe, middle priority)
@@ -163,7 +161,6 @@ void serial_process_data(void)
                     continue;
             }
             
-            // no need to sizeof if you already have the magic numbers to do so.
             if (g_in_frame && g_frame_len < (MAX_PAYLOAD_SIZE + 4)) {
                 g_frame_buffer[g_frame_len++] = unstuffed_byte;
             }
@@ -179,7 +176,7 @@ void serial_process_data(void)
                 break;
 
             case EOF_BYTE:
-                // EOF reached, complete the processing.
+                // EOF reached process entire frame
                 if (g_in_frame) {
                     g_in_frame = false;
                     serial_process_complete_frame();
@@ -187,7 +184,6 @@ void serial_process_data(void)
                 break;
 
             case ESC_BYTE:
-                // this is the start of a sequence
                 g_in_escape = true;
                 break;
 
@@ -299,14 +295,12 @@ static inline void send_stuffed_byte(const uint8_t c) {
 }
 
 
-// REVISED send_message function
 void send_message(uint8_t msg_type, uint8_t *payload, uint16_t len)
 {
     // Build frame: Type(1) + Length(2) + Payload(N) + Checksum(1)
     uint8_t frame_buffer[MAX_PAYLOAD_SIZE + 4];
     uint16_t frame_len = 0;
     
-    // Type
     frame_buffer[frame_len++] = msg_type;
     
     /**

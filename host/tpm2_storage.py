@@ -65,8 +65,7 @@ class TPM2Storage(KeyStorageInterface):
             # Step 1: Check if NV index already exists
             if self._nv_index_exists():
                 Logger.info(f"TPM2 NVRAM index 0x{self.nv_index:08x} already exists, will overwrite")
-                # Try to undefine first to ensure clean state
-                self._undefine_nv_index()
+            self._undefine_nv_index()
             
             # Step 2: Define NV space
             if not self._define_nv_index(len(key)):
@@ -125,8 +124,7 @@ class TPM2Storage(KeyStorageInterface):
                 )
             finally:
                 self.esapi.tr_close(nv_handle)
-            
-            # Convert to bytes
+
             key_data = bytes(data)
             
             # Validate key length
@@ -176,7 +174,6 @@ class TPM2Storage(KeyStorageInterface):
                 return False
                 
             # Check if the first returned handle matches our index
-            # (It should, since we asked to start there, but good to be safe)
             return cap_data.data.handles[0] == self.nv_index
             
         except TSS2_Exception:

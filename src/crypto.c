@@ -127,7 +127,7 @@ static void compute_sha256(const uint8_t* message, size_t message_len, uint8_t* 
     // UNIT_TEST, RP2040, or FORCE_SOFTWARE_SHA256: Use mbedtls software SHA256
     mbedtls_sha256_context ctx;
     mbedtls_sha256_init(&ctx);
-    mbedtls_sha256_starts(&ctx, 0);  // 0 = SHA256 (not SHA224)
+    mbedtls_sha256_starts(&ctx, 0);
     mbedtls_sha256_update(&ctx, message, message_len);
     mbedtls_sha256_finish(&ctx, hash_out);
     mbedtls_sha256_free(&ctx);
@@ -291,7 +291,7 @@ bool crypto_encrypt_frame_if_needed(
     uint8_t* restrict encrypted_frame_out,
     uint16_t* restrict encrypted_len_out
 ) {
-    (void)msg_type;  // Unused in this implementation
+    (void)msg_type;
 
     extern protocol_state_t g_protocol_state;
 
@@ -331,9 +331,9 @@ bool crypto_derive_session_key(const uint8_t* shared_secret, uint8_t* session_ke
 
     int ret = mbedtls_hkdf(
         md_info,
-        salt, sizeof(salt) - 1,  // Salt (exclude null terminator)
-        shared_secret, 32,        // Input key material (32-byte ECDH output)
-        info, 0,                  // Info (empty)
+        salt, sizeof(salt) - 1,        // Salt (exclude null terminator)
+        shared_secret, 32,             // Input key material (32-byte ECDH output)
+        info, 0,                       // Info (empty)
         session_key_out, AES_KEY_SIZE  // Output key (16 bytes for AES-128)
     );
 
@@ -630,16 +630,16 @@ int crypto_hex_to_bytes(const char* hex_str, uint8_t* out_bytes, size_t max_byte
     if (!hex_str || !out_bytes) return -1;
 
     size_t hex_len = strlen(hex_str);
-    if (hex_len % 2 != 0) return -1; // Must be even number of hex chars
+    if (hex_len % 2 != 0) return -1;
 
     size_t byte_count = hex_len / 2;
-    if (byte_count > max_bytes) return -1; // Not enough space in output buffer
+    if (byte_count > max_bytes) return -1;
 
     for (size_t i = 0; i < byte_count; i++) {
         char hex_pair[3] = {hex_str[i*2], hex_str[i*2+1], '\0'};
         unsigned int byte;
         if (sscanf(hex_pair, "%02x", &byte) != 1) {
-            return -1; // Invalid hex character
+            return -1;
         }
         out_bytes[i] = (uint8_t)byte;
     }
@@ -802,7 +802,7 @@ bool crypto_set_golden_hash(uint8_t* p_hash){
         8,                  // Slot 8
         2,                  // Block number 2 (starts at byte 64)
         0,                  // Offset within block
-        p_hash,            // 32-byte golden hash
+        p_hash,             // 32-byte golden hash
         32                  // Write 32 bytes
     );
 
@@ -924,7 +924,6 @@ bool crypto_request_host_pubkey_write(const char *hex_pubkey, bool *write_ready_
     }
 
     if (g_host_pubkey_write_pending) {
-        // Write already in progress
         if (write_ready_out) *write_ready_out = false;
         if (write_failed_out) *write_failed_out = false;
         return false;
@@ -965,7 +964,6 @@ static void golden_hash_task(void *arg) {
                 uint8_t verify_hash[32];
                 bool read_success = crypto_get_golden_hash(verify_hash);
                 if (read_success && memcmp(g_pending_golden_hash, verify_hash, 32) == 0) {
-                    // Success - store result
                     memcpy(g_golden_hash_result, verify_hash, 32);
                     g_golden_hash_write_ready = true;
                 } else {
@@ -1000,7 +998,7 @@ bool crypto_spawn_golden_hash_task_with_data(const uint8_t* golden_hash) {
     }
 
     if (g_golden_hash_write_pending) {
-        return false;  // Already busy
+        return false;
     }
 
     // Copy golden hash data and start write operation

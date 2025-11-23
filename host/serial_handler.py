@@ -67,7 +67,7 @@ class SerialHandler:
                 self._serial = serial.Serial(
                     port=self.port,
                     baudrate=self.baudrate,
-                    timeout=0.1,  # Short timeout to avoid blocking too long
+                    timeout=0.1,
                     write_timeout=1.0
                 )
                 # Reset parser state on new connection
@@ -114,7 +114,6 @@ class SerialHandler:
             try:
                 # Check if serial port is still valid
                 if not self._serial or not self._serial.is_open:
-                    # Port closed, exit quietly (main loop will handle reconnection)
                     break
                 
                 # Read available data - always try to read up to 256 bytes
@@ -135,7 +134,6 @@ class SerialHandler:
                             self.on_error(e)
             
             except (serial.SerialException, OSError) as e:
-                # Serial port error - device probably disconnected, exit quietly
                 break
             except Exception as e:
                 if self.on_error:

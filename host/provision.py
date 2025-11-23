@@ -78,7 +78,6 @@ class ProvisioningTool:
         # Check token pubkey
         Logger.section("Token Permanent Public Key")
         try:
-            # Try to load just to check existence
             if self.crypto.load_permanent_keys() and self.crypto.token_permanent_pubkey_raw:
                 Logger.success("Token pubkey stored in TPM2")
                 Logger.substep(f"Public key: {self.crypto.token_permanent_pubkey_raw[:32].hex()}...")
@@ -103,6 +102,7 @@ class ProvisioningTool:
         Logger.header("MASTR Host Keypair Generation")
 
         # Check if key already exists
+        # If key doesn't exist, proceed with generation
         if not force:
             try:
                 if self.crypto.load_permanent_keys():
@@ -110,7 +110,7 @@ class ProvisioningTool:
                     Logger.info("Use --regenerate to force regeneration (will overwrite)")
                     return 1
             except Exception:
-                pass  # Key doesn't exist, proceed with generation
+                pass  
 
         Logger.section("Generating Host Permanent Keypair")
         Logger.info("Creating P-256 ECC keypair in TPM2...")
@@ -417,7 +417,6 @@ Typical Workflow:
         return tool.verify_provisioning()
 
     else:
-        # Default: show status
         return tool.show_status()
 
 

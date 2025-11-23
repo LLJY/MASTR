@@ -2,7 +2,6 @@
 #include "task.h"
 
 void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName) {
-    // Enhanced handler: try to log the error before halting
     (void)xTask;
     (void)pcTaskName;
     // Note: Cannot safely call print_dbg here as stack may be corrupted

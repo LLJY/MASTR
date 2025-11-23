@@ -31,7 +31,7 @@ class MastrApiClient:
             except Exception as e:
                 if attempt < self.max_retries:
                     Logger.substep(f"{Colors.YELLOW}⚠{Colors.RESET} {operation_name} failed (attempt {attempt}/{self.max_retries}): {e}")
-                    time.sleep(1.0 * attempt)  # Exponential backoff
+                    time.sleep(1.0 * attempt)
                 else:
                     Logger.error(f"{operation_name} failed after {self.max_retries} attempts: {e}")
                     raise
@@ -109,10 +109,8 @@ class MastrApiClient:
                 f"\r\n"
             ).encode('ascii') + body
 
-            # Send everything at once
             sock.sendall(http_request)
 
-            # Read response
             response = b""
             while True:
                 try:
@@ -120,7 +118,6 @@ class MastrApiClient:
                     if not chunk:
                         break
                     response += chunk
-                    # Check if we have complete response
                     if b"\r\n\r\n" in response:
                         break
                 except socket.timeout:
@@ -134,7 +131,6 @@ class MastrApiClient:
             status_line = lines[0]
             status_code = int(status_line.split()[1])
 
-            # Extract body (after \r\n\r\n)
             body_start = response_str.find('\r\n\r\n')
             if body_start >= 0:
                 body_str = response_str[body_start + 4:]
@@ -228,7 +224,6 @@ class MastrApiClient:
                 Logger.error(f"Token reported {status} status")
                 return False
             elif status is None:
-                # Network error, retry
                 pass
             time.sleep(delay)
 

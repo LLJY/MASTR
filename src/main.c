@@ -87,7 +87,7 @@ bool check_factory_reset_jumper(void) {
 
 // FreeRTOS task for processing serial data
 void serial_task(void *params) {
-    (void)params;  // Unused parameter
+    (void)params;  
     
     while (true) {
         serial_process_data();
@@ -97,7 +97,7 @@ void serial_task(void *params) {
 
 // Enhanced watchdog task - monitors session timeout, system health, and AP stability
 void watchdog_task(void *params) {
-    (void)params;  // Unused parameter
+    (void)params; 
     
     // System health monitoring variables
     static uint32_t last_heap_check = 0;
@@ -106,7 +106,7 @@ void watchdog_task(void *params) {
     static bool baseline_set = false;
     
     while (true) {
-        vTaskDelay(pdMS_TO_TICKS(1000));  // Check every 1 second
+        vTaskDelay(pdMS_TO_TICKS(1000)); 
         
         g_protocol_state.last_watchdog_check = time_us_64();
         uint32_t current_time_ms = to_ms_since_boot(get_absolute_time());
@@ -211,19 +211,18 @@ void app_init_task(void *params) {
     
     print_dbg("App init task started.\n");
 
-    // --- All your logic is moved here ---
     if (protocol_check_provisioned()) {
         // Initialize protocol state
         g_protocol_state.protocol_begin_timestamp = time_us_64();
         g_protocol_state.current_state = H2T_ECDH_SHARE;  // Start at ECDH state (0x20)
         
         // Initialize session management
-        g_protocol_state.is_encrypted = false;       // Encryption disabled until first ECDH
-        g_protocol_state.session_valid = false;      // No valid session yet
+        g_protocol_state.is_encrypted = false;            // Encryption disabled until first ECDH
+        g_protocol_state.session_valid = false;           // No valid session yet
         g_protocol_state.session_start_timestamp = 0;
-        g_protocol_state.session_timeout_ms = 30000;   // Default 30 second timeout
+        g_protocol_state.session_timeout_ms = 30000;      // Default 30 second timeout
         g_protocol_state.last_watchdog_check = 0;
-        g_protocol_state.in_halt_state = false;      // Not in halt state
+        g_protocol_state.in_halt_state = false;           // Not in halt state
 
         serial_init(serial_task_handle);
 
@@ -280,11 +279,9 @@ void app_init_task(void *params) {
 
     print_dbg("App init task finished. Deleting self.\n");
     
-    // This task is done, so we delete it to free resources
     vTaskDelete(NULL);
 }
 
-// Idle monitor removed (tick-based idle accounting deprecated)
 
 int main() {
     stdio_init_all();
@@ -295,9 +292,9 @@ int main() {
     ATCAIfaceCfg cfg = {
         .iface_type = ATCA_I2C_IFACE,
         .devtype = ATECC608A,
-        .atcai2c.address = 0x6A,     // 8-bit format (0x35 << 1) - NEW CHIP!
+        .atcai2c.address = 0x6A,
         .atcai2c.bus = 0,
-        .atcai2c.baud = 100000,      // 100kHz for reliability
+        .atcai2c.baud = 100000, 
         .wake_delay = 1500,
         .rx_retries = 20
     };
@@ -334,11 +331,10 @@ int main() {
     
     if (serial_result != pdPASS || serial_task_handle == NULL) {
         print_dbg("FATAL: Failed to create Serial task - system cannot continue\n");
-        // System cannot function without serial task
+
         while (1) { tight_loop_contents(); }
     }
     
-    // Create the enhanced watchdog task (High priority, but below WiFi background to prevent lwIP deadlock)
     TaskHandle_t watchdog_task_handle;
     BaseType_t watchdog_result = xTaskCreate(
         watchdog_task,
@@ -351,7 +347,7 @@ int main() {
     
     if (watchdog_result != pdPASS || watchdog_task_handle == NULL) {
         print_dbg("FATAL: Failed to create Watchdog task - system stability compromised\n");
-        // System can continue but without monitoring - proceed with caution
+
     }
     
     BaseType_t init_result = xTaskCreate(
@@ -376,7 +372,7 @@ int main() {
         "CPU-Mon",
         DEFAULT_STACK_SIZE,
         NULL,
-        5,  // Low priority - just background monitoring
+        5,
         &cpu_monitor_task_handle
     );
 
@@ -388,7 +384,6 @@ int main() {
     // Start the FreeRTOS scheduler
     vTaskStartScheduler();
     
-    // Should never reach here
     print_dbg("ERROR: Scheduler failed to start!\n");
     while (1) {
         tight_loop_contents();

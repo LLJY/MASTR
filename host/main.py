@@ -140,7 +140,7 @@ class MASTRHost:
         self.boot_ok_event = threading.Event()
         
         # Session management for re-attestation
-        self.session_timeout = 30  # seconds (configurable)
+        self.session_timeout = 30
         self.session_start_time = None
         self.watchdog_thread = None
         self.watchdog_running = False
@@ -152,7 +152,7 @@ class MASTRHost:
             on_frame=self.on_frame_received,
             on_error=self.on_error,
             on_raw_data=None,
-            crypto_handler=self.crypto  # Serial layer handles encryption/decryption automatically
+            crypto_handler=self.crypto
         )
     
     # ========================================================================
@@ -381,7 +381,7 @@ class MASTRHost:
             Logger.substep(f"{Colors.RED}✗{Colors.RESET} Failed to send host pubkey")
             return False
         Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Sent host pubkey")
-        time.sleep(0.2)  # Give token time to process
+        time.sleep(0.2)
         
         # Step 2: Request token pubkey
         Logger.step(2, "Requesting token public key...")
@@ -563,7 +563,7 @@ class MASTRHost:
         else:
             # Default test data
             Logger.substep("Using default test data (2 bytes: 'h' + null)")
-            test_data = b"h\0"  # 0x68 0x00
+            test_data = b"h\0"
             golden_hash = hashlib.sha256(test_data).digest()
             Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Test data: {test_data.hex()}")
             Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Golden hash: {golden_hash.hex()}")
@@ -683,7 +683,7 @@ class MASTRHost:
         
         # Don't set session key yet - keep using old key for ECDH
         # Will switch to new key right before ping/pong
-        self.derived_session_key = session_key  # Store for later
+        self.derived_session_key = session_key
         self.protocol_state = 0x22
         
         Logger.substep(f"{Colors.GREEN}✓{Colors.RESET} Session key: {session_key.hex()}")
@@ -713,7 +713,7 @@ class MASTRHost:
             Logger.info(f"Switching to new session key: {self.derived_session_key.hex()}")
             self.crypto.set_session_key(self.derived_session_key)
             self.crypto.set_encryption_enabled(True)
-            delattr(self, 'derived_session_key')  # Clean up
+            delattr(self, 'derived_session_key')
         
         step_num = 8 + step_offset
         
@@ -902,7 +902,8 @@ class MASTRHost:
         Runs every second checking if session has expired.
         """
         while self.watchdog_running:
-            time.sleep(1)  # Check every second
+            # Check every second
+            time.sleep(1)  
             
             # Skip if no active session
             if self.session_start_time is None:
